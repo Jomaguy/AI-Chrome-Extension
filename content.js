@@ -81,6 +81,36 @@ function isTextField(element) {
 // Track the current active text field
 let activeTextField = null;
 
+// Add near other state tracking
+const shortcutState = {
+  lastShortcut: null,
+  timestamp: null
+};
+
+// Add near other state tracking
+const undoRedoState = {
+  lastAction: null,  // 'undo' or 'redo'
+  timestamp: null,
+  fieldState: {
+    beforeAction: null,
+    afterAction: null,
+    cursorPosition: null,
+    fieldId: null
+  }
+};
+
+// Add near other state tracking
+const aiState = {
+  lastAction: null,  // 'complete', 'suggest', 'rephrase'
+  timestamp: null,
+  fieldState: {
+    content: null,
+    cursorPosition: null,
+    selection: null,
+    fieldId: null
+  }
+};
+
 // Helper function to attach listeners to a field
 function attachFieldListeners(field) {
   if (!field || monitoredFields.has(field)) return;
@@ -164,6 +194,138 @@ function attachFieldListeners(field) {
     }
   };
   
+  const handleSelectAll = (e) => {
+    try {
+      // Check if it's Ctrl+A (Windows/Linux) or Cmd+A (Mac)
+      if ((e.ctrlKey || e.metaKey) && e.key === 'a') {
+        e.preventDefault(); // Prevent default to handle it ourselves
+        
+        field.select(); // Select all text
+        updateSelectionState(field); // Update our selection tracking
+        
+        shortcutState.lastShortcut = 'selectAll';
+        shortcutState.timestamp = new Date().toISOString();
+        
+        debugLog('Select All shortcut:', {
+          fieldType: field.tagName,
+          fieldId: field.id || 'no-id',
+          textLength: field.value.length
+        });
+      }
+    } catch (error) {
+      debugLog('Error in select all handler:', error);
+    }
+  };
+  
+  const handleUndoRedo = (e) => {
+    try {
+      // Only log for potential undo/redo commands
+      if ((e.ctrlKey || e.metaKey) && (e.key === 'z' || e.key === 'y')) {
+        debugLog('Potential undo/redo detected:', {
+          key: e.key,
+          ctrlKey: e.ctrlKey,
+          metaKey: e.metaKey,
+          shiftKey: e.shiftKey
+        });
+
+        const beforeState = {
+          content: field.value,
+          cursorPosition: field.selectionStart,
+          selectionEnd: field.selectionEnd,
+          timestamp: Date.now()
+        };
+
+        // Undo (Ctrl/Cmd + Z)
+        if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) {
+          setTimeout(() => {
+            const afterState = {
+              content: field.value,
+              cursorPosition: field.selectionStart
+            };
+            
+            debugLog('Checking undo state change:', {
+              before: beforeState.content.length,
+              after: afterState.content.length,
+              changed: beforeState.content !== afterState.content
+            });
+            
+            if (beforeState.content !== afterState.content) {
+              trackUndoRedo(field, 'undo', beforeState, afterState);
+            }
+          }, 10); // Slightly longer timeout
+        }
+
+        // Similar update for redo...
+      }
+    } catch (error) {
+      debugLog('Error in undo/redo handler:', error);
+    }
+  };
+
+  const handleAIShortcuts = (e) => {
+    try {
+      const getFieldState = () => ({
+        content: field.value,
+        cursorPosition: field.selectionStart,
+        selection: field.value.substring(field.selectionStart, field.selectionEnd),
+        fieldId: field.id || 'no-id'
+      });
+
+      // Command/Ctrl + Shift + Space for AI completion
+      if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.code === 'Space') {
+        e.preventDefault();
+        const fieldState = getFieldState();
+        aiState.lastAction = 'complete';
+        aiState.timestamp = new Date().toISOString();
+        aiState.fieldState = fieldState;
+        
+        debugLog('AI completion triggered:', {
+          fieldType: field.tagName,
+          fieldId: fieldState.fieldId,
+          cursorPosition: fieldState.cursorPosition,
+          hasSelection: fieldState.selection.length > 0,
+          shortcut: 'Cmd/Ctrl + Shift + Space'
+        });
+      }
+
+      // Command/Ctrl + Shift + S for AI suggestions
+      if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key === 's') {
+        e.preventDefault();
+        const fieldState = getFieldState();
+        aiState.lastAction = 'suggest';
+        aiState.timestamp = new Date().toISOString();
+        aiState.fieldState = fieldState;
+        
+        debugLog('AI suggestions triggered:', {
+          fieldType: field.tagName,
+          fieldId: fieldState.fieldId,
+          cursorPosition: fieldState.cursorPosition,
+          hasSelection: fieldState.selection.length > 0,
+          shortcut: 'Cmd/Ctrl + Shift + S'
+        });
+      }
+
+      // Command/Ctrl + Shift + R for AI rephrase
+      if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key === 'r') {
+        e.preventDefault();
+        const fieldState = getFieldState();
+        aiState.lastAction = 'rephrase';
+        aiState.timestamp = new Date().toISOString();
+        aiState.fieldState = fieldState;
+        
+        debugLog('AI rephrase triggered:', {
+          fieldType: field.tagName,
+          fieldId: fieldState.fieldId,
+          cursorPosition: fieldState.cursorPosition,
+          hasSelection: fieldState.selection.length > 0,
+          shortcut: 'Cmd/Ctrl + Shift + R'
+        });
+      }
+    } catch (error) {
+      debugLog('Error in AI shortcut handler:', error);
+    }
+  };
+
   // Update the event listeners section
   try {
     field.addEventListener('focus', onFocus);
@@ -177,6 +339,9 @@ function attachFieldListeners(field) {
     });
     field.addEventListener('copy', onCopy);
     field.addEventListener('paste', onPaste);
+    field.addEventListener('keydown', handleSelectAll);
+    field.addEventListener('keydown', handleUndoRedo);
+    field.addEventListener('keydown', handleAIShortcuts);
     
     debugLog('Listeners attached to field:', {
       tagName: field.tagName,
@@ -192,7 +357,10 @@ function attachFieldListeners(field) {
     ...field._listeners,
     select: onSelect,
     copy: onCopy,
-    paste: onPaste
+    paste: onPaste,
+    selectAll: handleSelectAll,
+    undoRedo: handleUndoRedo,
+    aiShortcuts: handleAIShortcuts
   };
   
   // Log new field types
@@ -221,6 +389,12 @@ function handleInput(e) {
 const monitoredFields = new WeakSet();
 const seenFieldTypes = new Set();
 
+// Add near other state tracking
+const removedFieldTracker = {
+  pendingRemovals: new Set(),
+  lastRemovalTime: null
+};
+
 // MutationObserver setup
 const observerConfig = {
   childList: true,
@@ -233,13 +407,37 @@ const observerConfig = {
 const observer = new MutationObserver((mutations) => {
   mutations.forEach(mutation => {
     if (mutation.type === 'childList') {
-      // Clean up removed nodes
+      // Enhanced removal handling
       mutation.removedNodes.forEach(node => {
-        if (node.nodeType === Node.ELEMENT_NODE && monitoredFields.has(node)) {
-          cleanupFieldListeners(node);
-        } else if (node.nodeType === Node.ELEMENT_NODE) {
-          node.querySelectorAll('input, textarea, [contenteditable="true"]')
-              .forEach(field => monitoredFields.has(field) && cleanupFieldListeners(field));
+        try {
+          if (node.nodeType === Node.ELEMENT_NODE) {
+            // Track the removal time
+            removedFieldTracker.lastRemovalTime = Date.now();
+            
+            // Handle direct field removal
+            if (monitoredFields.has(node)) {
+              debugLog('Direct field removal detected:', {
+                tagName: node.tagName,
+                id: node.id || 'no-id'
+              });
+              cleanupFieldListeners(node);
+            }
+            
+            // Handle nested fields removal
+            const removedFields = node.querySelectorAll('input, textarea, [contenteditable="true"]');
+            removedFields.forEach(field => {
+              if (monitoredFields.has(field)) {
+                debugLog('Nested field removal detected:', {
+                  tagName: field.tagName,
+                  id: field.id || 'no-id',
+                  parentNode: node.tagName
+                });
+                cleanupFieldListeners(field);
+              }
+            });
+          }
+        } catch (error) {
+          debugLog('Error handling node removal:', error);
         }
       });
 
@@ -367,6 +565,9 @@ function cleanupFieldListeners(field) {
     field.removeEventListener('keyup', field._listeners.select);
     field.removeEventListener('copy', field._listeners.copy);
     field.removeEventListener('paste', field._listeners.paste);
+    field.removeEventListener('keydown', field._listeners.selectAll);
+    field.removeEventListener('keydown', field._listeners.undoRedo);
+    field.removeEventListener('keydown', field._listeners.aiShortcuts);
     delete field._listeners;
   }
   
@@ -448,4 +649,89 @@ const clipboardState = {
   lastCopy: null,
   lastPaste: null,
   timestamp: null
+};
+
+// Add utility function to track state changes
+function trackUndoRedo(field, action, beforeState, afterState) {
+  try {
+    undoRedoState.lastAction = action;
+    undoRedoState.timestamp = new Date().toISOString();
+    undoRedoState.fieldState.beforeAction = beforeState;
+    undoRedoState.fieldState.afterAction = afterState;
+    undoRedoState.fieldState.fieldId = field.id || 'no-id';
+
+    debugLog(`${action} action detected:`, {
+      fieldType: field.tagName,
+      fieldId: field.id || 'no-id',
+      cursorPosition: beforeState.cursorPosition,
+      contentLength: beforeState.content.length
+    });
+  } catch (error) {
+    debugLog('Error tracking undo/redo:', error);
+  }
+}
+
+// Add AI shortcut handler
+const handleAIShortcuts = (e) => {
+  try {
+    const getFieldState = () => ({
+      content: field.value,
+      cursorPosition: field.selectionStart,
+      selection: field.value.substring(field.selectionStart, field.selectionEnd),
+      fieldId: field.id || 'no-id'
+    });
+
+    // Command/Ctrl + Shift + Space for AI completion
+    if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.code === 'Space') {
+      e.preventDefault();
+      const fieldState = getFieldState();
+      aiState.lastAction = 'complete';
+      aiState.timestamp = new Date().toISOString();
+      aiState.fieldState = fieldState;
+      
+      debugLog('AI completion triggered:', {
+        fieldType: field.tagName,
+        fieldId: fieldState.fieldId,
+        cursorPosition: fieldState.cursorPosition,
+        hasSelection: fieldState.selection.length > 0,
+        shortcut: 'Cmd/Ctrl + Shift + Space'
+      });
+    }
+
+    // Command/Ctrl + Shift + S for AI suggestions
+    if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key === 's') {
+      e.preventDefault();
+      const fieldState = getFieldState();
+      aiState.lastAction = 'suggest';
+      aiState.timestamp = new Date().toISOString();
+      aiState.fieldState = fieldState;
+      
+      debugLog('AI suggestions triggered:', {
+        fieldType: field.tagName,
+        fieldId: fieldState.fieldId,
+        cursorPosition: fieldState.cursorPosition,
+        hasSelection: fieldState.selection.length > 0,
+        shortcut: 'Cmd/Ctrl + Shift + S'
+      });
+    }
+
+    // Command/Ctrl + Shift + R for AI rephrase
+    if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key === 'r') {
+      e.preventDefault();
+      const fieldState = getFieldState();
+      aiState.lastAction = 'rephrase';
+      aiState.timestamp = new Date().toISOString();
+      aiState.fieldState = fieldState;
+      
+      debugLog('AI rephrase triggered:', {
+        fieldType: field.tagName,
+        fieldId: fieldState.fieldId,
+        cursorPosition: fieldState.cursorPosition,
+        hasSelection: fieldState.selection.length > 0,
+        shortcut: 'Cmd/Ctrl + Shift + R'
+      });
+    }
+  } catch (error) {
+    debugLog('Error in AI shortcut handler:', error);
+  }
 }; 
