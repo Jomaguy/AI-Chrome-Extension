@@ -5,7 +5,9 @@
   "description": "AI-powered text completion for any website",
   "permissions": [
     "activeTab",
-    "scripting"
+    "scripting",
+    "clipboardRead",
+    "clipboardWrite"
   ],
   "host_permissions": [
     "*://*/*"

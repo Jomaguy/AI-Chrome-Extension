@@ -86,6 +86,14 @@ function attachFieldListeners(field) {
   if (!field || monitoredFields.has(field)) return;
   if (!isTextField(field)) return;
   
+  if (field._listeners) {
+    debugLog('Field already has listeners:', {
+      tagName: field.tagName,
+      id: field.id || 'no-id'
+    });
+    return;
+  }
+  
   monitoredFields.add(field);
   
   const onFocus = () => {
@@ -114,10 +122,62 @@ function attachFieldListeners(field) {
     }
   };
   
-  // Add the event listeners
+  // Add selection handler
+  const onSelect = () => {
+    debouncedSelectionUpdate(field);
+  };
+
+  const onCopy = (e) => {
+    try {
+      const selectedText = selectionState.selectedText;
+      // Only process copy events with actual selected text
+      if (selectedText && selectedText.length > 0) {
+        clipboardState.lastCopy = selectedText;
+        clipboardState.timestamp = new Date().toISOString();
+        
+        debugLog('Copy event:', {
+          selectedText,
+          length: selectedText.length,
+          fieldType: field.tagName,
+          fieldId: field.id || 'no-id'
+        });
+      }
+    } catch (error) {
+      debugLog('Error in copy handler:', error);
+    }
+  };
+
+  const onPaste = (e) => {
+    try {
+      const pastedText = e.clipboardData.getData('text/plain');
+      clipboardState.lastPaste = pastedText;
+      clipboardState.timestamp = new Date().toISOString();
+      
+      debugLog('Paste event:', {
+        textLength: pastedText.length,
+        cursorPosition: field.selectionStart,
+        fieldType: field.tagName,
+        fieldId: field.id || 'no-id'
+      });
+    } catch (error) {
+      debugLog('Error in paste handler:', error);
+    }
+  };
+  
+  // Update the event listeners section
   try {
     field.addEventListener('focus', onFocus);
     field.addEventListener('blur', onBlur);
+    field.addEventListener('select', onSelect);
+    field.addEventListener('mouseup', onSelect);
+    field.addEventListener('keyup', (e) => {
+      if (e.shiftKey || e.key === 'a' && (e.ctrlKey || e.metaKey)) {
+        onSelect();
+      }
+    });
+    field.addEventListener('copy', onCopy);
+    field.addEventListener('paste', onPaste);
+    
     debugLog('Listeners attached to field:', {
       tagName: field.tagName,
       type: field.type,
@@ -127,10 +187,12 @@ function attachFieldListeners(field) {
     debugLog('Error attaching listeners:', error);
   }
   
-  // Store in _listeners for cleanup
+  // Update stored listeners
   field._listeners = {
-    focus: onFocus,
-    blur: onBlur
+    ...field._listeners,
+    select: onSelect,
+    copy: onCopy,
+    paste: onPaste
   };
   
   // Log new field types
@@ -300,6 +362,11 @@ function cleanupFieldListeners(field) {
     field.removeEventListener('focus', field._listeners.focus);
     field.removeEventListener('blur', field._listeners.blur);
     field.removeEventListener('input', handleInput);
+    field.removeEventListener('select', field._listeners.select);
+    field.removeEventListener('mouseup', field._listeners.select);
+    field.removeEventListener('keyup', field._listeners.select);
+    field.removeEventListener('copy', field._listeners.copy);
+    field.removeEventListener('paste', field._listeners.paste);
     delete field._listeners;
   }
   
@@ -330,4 +397,55 @@ if (document.readyState === 'loading') {
   document.addEventListener('DOMContentLoaded', initObserver);
 } else {
   startObserver();
-} 
+}
+
+// Add near other state tracking variables at the top
+const selectionState = {
+  selectedText: '',
+  selectionStart: 0,
+  selectionEnd: 0,
+  field: null,
+  timestamp: null
+};
+
+// Add this utility function near other utility functions
+function updateSelectionState(field) {
+  try {
+    const start = field.selectionStart;
+    const end = field.selectionEnd;
+    const selected = field.value.substring(start, end);
+    
+    selectionState.selectedText = selected;
+    selectionState.selectionStart = start;
+    selectionState.selectionEnd = end;
+    selectionState.field = field;
+    selectionState.timestamp = new Date().toISOString();
+
+    debugLog('Selection updated:', {
+      length: selected.length,
+      start,
+      end,
+      fieldType: field.tagName,
+      fieldId: field.id || 'no-id'
+    });
+  } catch (error) {
+    debugLog('Error updating selection state:', error);
+  }
+}
+
+// Add near other debounced functions
+const debouncedSelectionUpdate = debounce((field) => {
+  updateSelectionState(field);
+}, 150);  // Shorter than input debounce
+
+// Update the onSelect handler
+const onSelect = () => {
+  debouncedSelectionUpdate(field);
+};
+
+// Add near other state tracking
+const clipboardState = {
+  lastCopy: null,
+  lastPaste: null,
+  timestamp: null
+}; 
