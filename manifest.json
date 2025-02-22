@@ -1,0 +1,19 @@
+{
+  "manifest_version": 3,
+  "name": "AI Text Autocomplete",
+  "version": "1.0",
+  "description": "AI-powered text completion for any website",
+  "permissions": [
+    "activeTab",
+    "scripting"
+  ],
+  "host_permissions": [
+    "*://*/*"
+  ],
+  "content_scripts": [{
+    "matches": ["<all_urls>"],
+    "js": ["content.js"],
+    "css": ["styles.css"],
+    "run_at": "document_idle"
+  }]
+} 
