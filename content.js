@@ -33,18 +33,18 @@ function debounce(func, wait) {
   };
 }
 
-// Update the debounced handler to use debug logging
+// Update the debounced input handler
 const debouncedHandleInput = debounce((e) => {
   const value = e.target.value || e.target.textContent || '';
   const cursor = e.target.selectionStart || 0;
   
-  if (value !== undefined) {
-    debugLog('Text changed:', {
-      value,
-      cursor,
-      element: e.target.tagName
-    });
-  }
+  debugLog('Input event:', {
+    tagName: e.target.tagName,
+    type: e.target.type,
+    valueLength: value.length,
+    cursor,
+    hasListeners: !!e.target._listeners
+  });
 }, 300);
 
 function isTextField(element) {
@@ -89,50 +89,51 @@ function attachFieldListeners(field) {
   monitoredFields.add(field);
   
   const onFocus = () => {
+    debugLog('Focus event:', {
+      tagName: field.tagName,
+      type: field.type,
+      id: field.id || 'no-id'
+    });
+    
     activeTextField = field;
     field.addEventListener('input', handleInput);
-    debugLog('Field focused:', field.tagName);
+    debugLog('Field focused and input listener attached');
   };
   
   const onBlur = () => {
+    debugLog('Blur event:', {
+      tagName: field.tagName,
+      type: field.type,
+      id: field.id || 'no-id'
+    });
+    
     if (activeTextField === field) {
       field.removeEventListener('input', handleInput);
       activeTextField = null;
-      debugLog('Field blurred:', field.tagName);
+      debugLog('Field blurred and input listener removed');
     }
   };
   
-  field.addEventListener('focus', onFocus);
-  field.addEventListener('blur', onBlur);
-  
-  // Add copy/paste handlers
-  const onCopy = (e) => {
-    debugLog('Copy event:', {
-      field: field.tagName,
-      selection: window.getSelection().toString()
+  // Add the event listeners
+  try {
+    field.addEventListener('focus', onFocus);
+    field.addEventListener('blur', onBlur);
+    debugLog('Listeners attached to field:', {
+      tagName: field.tagName,
+      type: field.type,
+      id: field.id || 'no-id'
     });
-  };
-  
-  const onPaste = (e) => {
-    debugLog('Paste event:', {
-      field: field.tagName,
-      data: e.clipboardData.getData('text')
-    });
-  };
-  
-  // Add to existing listeners
-  field.addEventListener('copy', onCopy);
-  field.addEventListener('paste', onPaste);
+  } catch (error) {
+    debugLog('Error attaching listeners:', error);
+  }
   
   // Store in _listeners for cleanup
-  field._listeners = { 
-    focus: onFocus, 
-    blur: onBlur,
-    copy: onCopy,
-    paste: onPaste
+  field._listeners = {
+    focus: onFocus,
+    blur: onBlur
   };
   
-  // Only log if it's a new field type we haven't seen
+  // Log new field types
   const fieldType = `${field.tagName}${field.type ? ':' + field.type : ''}`;
   if (!seenFieldTypes.has(fieldType)) {
     seenFieldTypes.add(fieldType);
@@ -140,13 +141,23 @@ function attachFieldListeners(field) {
   }
 }
 
-// Handle text input (simplified logging)
+// Update handleInput to add immediate feedback
 function handleInput(e) {
-  debouncedHandleInput(e);
+  try {
+    debugLog('Raw input event received:', {
+      tagName: e.target.tagName,
+      type: e.target.type,
+      id: e.target.id || 'no-id'
+    });
+    debouncedHandleInput(e);
+  } catch (error) {
+    debugLog('Error in handleInput:', error);
+  }
 }
 
-// Utility to track which fields we're already monitoring
+// Utility to track monitored fields
 const monitoredFields = new WeakSet();
+const seenFieldTypes = new Set();
 
 // MutationObserver setup
 const observerConfig = {
@@ -160,7 +171,7 @@ const observerConfig = {
 const observer = new MutationObserver((mutations) => {
   mutations.forEach(mutation => {
     if (mutation.type === 'childList') {
-      // Clean up removed nodes silently
+      // Clean up removed nodes
       mutation.removedNodes.forEach(node => {
         if (node.nodeType === Node.ELEMENT_NODE && monitoredFields.has(node)) {
           cleanupFieldListeners(node);
@@ -170,7 +181,7 @@ const observer = new MutationObserver((mutations) => {
         }
       });
 
-      // Add new nodes silently
+      // Add new nodes
       mutation.addedNodes.forEach(node => {
         if (node.nodeType === Node.ELEMENT_NODE) {
           if (isTextField(node)) {
@@ -181,7 +192,7 @@ const observer = new MutationObserver((mutations) => {
         }
       });
     }
-    // Handle contenteditable changes silently
+    // Handle contenteditable changes
     else if (mutation.type === 'attributes' && 
              mutation.attributeName === 'contenteditable' && 
              isTextField(mutation.target)) {
@@ -190,7 +201,7 @@ const observer = new MutationObserver((mutations) => {
   });
 });
 
-// Add near other state tracking
+// Cleanup tracker
 const cleanupTracker = new Set();
 
 function cleanupAllFields() {
@@ -207,15 +218,13 @@ function cleanupAllFields() {
   }
 }
 
-// Add observer state tracking
+// Observer state tracking
 let isObserverActive = false;
 
-// Update the disconnection logic
 function disconnectObserver() {
   try {
     debugLog('Attempting to disconnect observer');
     if (observer && isObserverActive) {
-      // Check if we really need to disconnect
       const shouldDisconnect = 
         document.visibilityState === 'hidden' || 
         document.readyState === 'unloading' ||
@@ -227,8 +236,6 @@ function disconnectObserver() {
         cleanupAllFields();
         isObserverActive = false;
         debugLog('Observer disconnected and fields cleaned up');
-      } else {
-        debugLog('Skipping disconnection - conditions not met');
       }
     }
   } catch (error) {
@@ -236,7 +243,6 @@ function disconnectObserver() {
   }
 }
 
-// Update the observer start function
 function startObserver() {
   if (isObserverActive) {
     debugLog('Observer already active, skipping start');
@@ -245,12 +251,24 @@ function startObserver() {
   
   debugLog('Starting observer');
   
-  // Remove any existing listeners first
+  // Add this debug scan
+  debugLog('Initial field scan');
+  document.querySelectorAll('input, textarea, [contenteditable="true"]')
+    .forEach(field => {
+      debugLog('Found field:', {
+        tagName: field.tagName,
+        type: field.type,
+        isTextField: isTextField(field)
+      });
+      if (isTextField(field)) {
+        attachFieldListeners(field);
+      }
+    });
+
   document.removeEventListener('visibilitychange', handleVisibilityChange);
   window.removeEventListener('beforeunload', handleBeforeUnload);
   window.removeEventListener('pagehide', handlePageHide);
   
-  // Add event listeners with named functions for proper cleanup
   document.addEventListener('visibilitychange', handleVisibilityChange);
   window.addEventListener('beforeunload', handleBeforeUnload);
   window.addEventListener('pagehide', handlePageHide);
@@ -260,7 +278,6 @@ function startObserver() {
   debugLog('Observer successfully started');
 }
 
-// Update visibility change handler
 function handleVisibilityChange() {
   const state = document.visibilityState;
   debouncedStateChange(state);
@@ -276,15 +293,6 @@ function handlePageHide() {
   disconnectObserver();
 }
 
-// Update initialization logic
-if (document.readyState === 'loading') {
-  debugLog('Document loading, waiting for DOMContentLoaded');
-  document.addEventListener('DOMContentLoaded', startObserver);
-} else {
-  debugLog('Document already loaded, starting observer immediately');
-  startObserver();
-}
-
 function cleanupFieldListeners(field) {
   if (!field || !monitoredFields.has(field)) return;
   
@@ -292,8 +300,6 @@ function cleanupFieldListeners(field) {
     field.removeEventListener('focus', field._listeners.focus);
     field.removeEventListener('blur', field._listeners.blur);
     field.removeEventListener('input', handleInput);
-    field.removeEventListener('copy', field._listeners.copy);
-    field.removeEventListener('paste', field._listeners.paste);
     delete field._listeners;
   }
   
@@ -304,17 +310,24 @@ function cleanupFieldListeners(field) {
   }
 }
 
-// Keep this one at the top with other utility functions
 const debouncedStateChange = debounce((state) => {
   debugLog('State change:', state);
   if (state === 'hidden') {
-    if (isObserverActive) {  // Only disconnect if active
+    if (isObserverActive) {
       disconnectObserver();
     }
   } else if (state === 'visible' && !isObserverActive) {
     startObserver();
   }
-}, 250);  // Increase debounce time 
+}, 250);
 
-// Add at the top with other state tracking
-const seenFieldTypes = new Set(); 
+// Initialize
+if (document.readyState === 'loading') {
+  const initObserver = () => {
+    startObserver();
+    document.removeEventListener('DOMContentLoaded', initObserver);
+  };
+  document.addEventListener('DOMContentLoaded', initObserver);
+} else {
+  startObserver();
+} 
