@@ -5,13 +5,38 @@ const DEBUG = true;
 function debugLog(...args) {
   if (!DEBUG) return;
   
-  // Only log certain types of messages
   const [message, ...rest] = args;
-  if (message.includes('Skipping') || message.includes('Found new text field in container')) {
-    return; // Skip noisy logs
-  }
   
-  console.log('[AI-Extension]', ...args);
+  // Skip more noisy logs
+  if (
+    message.includes('Raw input event received') ||
+    message.includes('Found field:') ||
+    message.includes('Field focused and input') ||
+    message.includes('Field blurred and input') ||
+    message.includes('Monitoring new field type') ||
+    message.includes('Listeners attached to field') ||
+    message.includes('Input event:') ||
+    (message.includes('Memory check') && !message.includes('error'))
+  ) return;
+  
+  // Enhanced categorization with lifecycle events
+  const prefix = 
+    message.includes('Memory check') ? '[Memory]' :
+    message.includes('cleanup') ? '[Cleanup]' :
+    message.includes('Observer') || message.includes('Initial field scan') ? '[Observer]' :
+    message.includes('Field') ? '[Field]' :
+    message.includes('Error') ? '[Error]' :
+    message.includes('AI') ? '[AI]' :
+    message.includes('Selection') ? '[Selection]' :
+    message.includes('initialized') || message.includes('Starting') ? '[Init]' :
+    message.includes('State change') || message.includes('unloading') || message.includes('hiding') ? '[State]' :
+    message.includes('Direct field removal') || message.includes('Nested field removal') ? '[Cleanup]' :
+    '[Lifecycle]';
+  
+  // Only log the message if it's meaningful
+  if (rest.length === 0 && message.trim().length < 3) return;
+  
+  console.log(prefix, message, ...(rest.length ? rest : []));
 }
 
 // Remove the generic console.log
@@ -111,6 +136,29 @@ const aiState = {
   }
 };
 
+// Add near other state tracking
+const lifecycleState = {
+  lastEvent: null,
+  timestamp: null,
+  cleanupStatus: {
+    fieldsRemoved: 0,
+    listenersRemoved: 0,
+    stateReset: false
+  }
+};
+
+// Add near other state tracking
+const memoryState = {
+  lastCheck: null,
+  activeFields: 0,
+  attachedListeners: 0,
+  performance: {
+    jsHeapSizeLimit: 0,
+    totalJSHeapSize: 0,
+    usedJSHeapSize: 0
+  }
+};
+
 // Helper function to attach listeners to a field
 function attachFieldListeners(field) {
   if (!field || monitoredFields.has(field)) return;
@@ -173,7 +221,7 @@ function attachFieldListeners(field) {
         });
       }
     } catch (error) {
-      debugLog('Error in copy handler:', error);
+      handleError('copy handler', error, field);
     }
   };
 
@@ -190,7 +238,7 @@ function attachFieldListeners(field) {
         fieldId: field.id || 'no-id'
       });
     } catch (error) {
-      debugLog('Error in paste handler:', error);
+      handleError('paste handler', error, field);
     }
   };
   
@@ -322,7 +370,7 @@ function attachFieldListeners(field) {
         });
       }
     } catch (error) {
-      debugLog('Error in AI shortcut handler:', error);
+      handleError('AI shortcuts handler', error, field);
     }
   };
 
@@ -369,6 +417,9 @@ function attachFieldListeners(field) {
     seenFieldTypes.add(fieldType);
     debugLog(`Monitoring new field type: ${fieldType}`);
   }
+
+  // Add memory check after attachment
+  checkMemoryUsage();
 }
 
 // Update handleInput to add immediate feedback
@@ -498,6 +549,9 @@ function disconnectObserver() {
         debugLog('Observer disconnected and fields cleaned up');
       }
     }
+
+    // Add memory check after disconnect
+    checkMemoryUsage();
   } catch (error) {
     debugLog('Error during observer disconnection:', error);
   }
@@ -553,28 +607,49 @@ function handlePageHide() {
   disconnectObserver();
 }
 
+// Enhance cleanup tracking
 function cleanupFieldListeners(field) {
-  if (!field || !monitoredFields.has(field)) return;
-  
-  if (field._listeners) {
-    field.removeEventListener('focus', field._listeners.focus);
-    field.removeEventListener('blur', field._listeners.blur);
-    field.removeEventListener('input', handleInput);
-    field.removeEventListener('select', field._listeners.select);
-    field.removeEventListener('mouseup', field._listeners.select);
-    field.removeEventListener('keyup', field._listeners.select);
-    field.removeEventListener('copy', field._listeners.copy);
-    field.removeEventListener('paste', field._listeners.paste);
-    field.removeEventListener('keydown', field._listeners.selectAll);
-    field.removeEventListener('keydown', field._listeners.undoRedo);
-    field.removeEventListener('keydown', field._listeners.aiShortcuts);
-    delete field._listeners;
-  }
-  
-  monitoredFields.delete(field);
-  
-  if (activeTextField === field) {
-    activeTextField = null;
+  try {
+    if (!field || !monitoredFields.has(field)) return;
+    
+    let listenersRemoved = 0;
+    
+    if (field._listeners) {
+      // Track each listener removal
+      field.removeEventListener('focus', field._listeners.focus); listenersRemoved++;
+      field.removeEventListener('blur', field._listeners.blur); listenersRemoved++;
+      field.removeEventListener('input', handleInput); listenersRemoved++;
+      field.removeEventListener('select', field._listeners.select); listenersRemoved++;
+      field.removeEventListener('mouseup', field._listeners.select); listenersRemoved++;
+      field.removeEventListener('keyup', field._listeners.select);
+      field.removeEventListener('copy', field._listeners.copy); listenersRemoved++;
+      field.removeEventListener('paste', field._listeners.paste); listenersRemoved++;
+      field.removeEventListener('keydown', field._listeners.selectAll); listenersRemoved++;
+      field.removeEventListener('keydown', field._listeners.undoRedo); listenersRemoved++;
+      field.removeEventListener('keydown', field._listeners.aiShortcuts); listenersRemoved++;
+      
+      delete field._listeners;
+    }
+    
+    monitoredFields.delete(field);
+    
+    // Update cleanup status
+    lifecycleState.lastEvent = 'cleanup';
+    lifecycleState.timestamp = new Date().toISOString();
+    lifecycleState.cleanupStatus.fieldsRemoved++;
+    lifecycleState.cleanupStatus.listenersRemoved += listenersRemoved;
+    
+    debugLog('Field cleanup completed:', {
+      fieldType: field.tagName,
+      fieldId: field.id || 'no-id',
+      listenersRemoved,
+      totalFieldsRemoved: lifecycleState.cleanupStatus.fieldsRemoved
+    });
+
+    // Add memory check after cleanup
+    checkMemoryUsage();
+  } catch (error) {
+    handleError('field cleanup', error, field);
   }
 }
 
@@ -671,67 +746,53 @@ function trackUndoRedo(field, action, beforeState, afterState) {
   }
 }
 
-// Add AI shortcut handler
-const handleAIShortcuts = (e) => {
-  try {
-    const getFieldState = () => ({
-      content: field.value,
-      cursorPosition: field.selectionStart,
-      selection: field.value.substring(field.selectionStart, field.selectionEnd),
-      fieldId: field.id || 'no-id'
+// Add near the top with other utility functions
+function handleError(context, error, field = null) {
+  const errorInfo = {
+    context,
+    message: error.message,
+    timestamp: new Date().toISOString(),
+    fieldInfo: field ? {
+      tagName: field.tagName,
+      id: field.id || 'no-id',
+      type: field.type
+    } : null
+  };
+
+  // Log the error with our debug utility
+  debugLog('Error occurred:', errorInfo);
+
+  // Track error state if needed
+  if (DEBUG) {
+    console.error('Full error details:', {
+      ...errorInfo,
+      stack: error.stack
     });
-
-    // Command/Ctrl + Shift + Space for AI completion
-    if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.code === 'Space') {
-      e.preventDefault();
-      const fieldState = getFieldState();
-      aiState.lastAction = 'complete';
-      aiState.timestamp = new Date().toISOString();
-      aiState.fieldState = fieldState;
-      
-      debugLog('AI completion triggered:', {
-        fieldType: field.tagName,
-        fieldId: fieldState.fieldId,
-        cursorPosition: fieldState.cursorPosition,
-        hasSelection: fieldState.selection.length > 0,
-        shortcut: 'Cmd/Ctrl + Shift + Space'
-      });
-    }
-
-    // Command/Ctrl + Shift + S for AI suggestions
-    if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key === 's') {
-      e.preventDefault();
-      const fieldState = getFieldState();
-      aiState.lastAction = 'suggest';
-      aiState.timestamp = new Date().toISOString();
-      aiState.fieldState = fieldState;
-      
-      debugLog('AI suggestions triggered:', {
-        fieldType: field.tagName,
-        fieldId: fieldState.fieldId,
-        cursorPosition: fieldState.cursorPosition,
-        hasSelection: fieldState.selection.length > 0,
-        shortcut: 'Cmd/Ctrl + Shift + S'
-      });
-    }
-
-    // Command/Ctrl + Shift + R for AI rephrase
-    if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key === 'r') {
-      e.preventDefault();
-      const fieldState = getFieldState();
-      aiState.lastAction = 'rephrase';
-      aiState.timestamp = new Date().toISOString();
-      aiState.fieldState = fieldState;
-      
-      debugLog('AI rephrase triggered:', {
-        fieldType: field.tagName,
-        fieldId: fieldState.fieldId,
-        cursorPosition: fieldState.cursorPosition,
-        hasSelection: fieldState.selection.length > 0,
-        shortcut: 'Cmd/Ctrl + Shift + R'
-      });
-    }
-  } catch (error) {
-    debugLog('Error in AI shortcut handler:', error);
   }
-}; 
+}
+
+// Add memory tracking function
+function checkMemoryUsage() {
+  try {
+    memoryState.lastCheck = new Date().toISOString();
+    memoryState.activeFields = monitoredFields.size;
+    
+    // Get performance memory if available
+    if (window.performance && performance.memory) {
+      memoryState.performance = {
+        jsHeapSizeLimit: performance.memory.jsHeapSizeLimit,
+        totalJSHeapSize: performance.memory.totalJSHeapSize,
+        usedJSHeapSize: performance.memory.usedJSHeapSize
+      };
+    }
+    
+    debugLog('Memory check:', {
+      timestamp: memoryState.lastCheck,
+      activeFields: memoryState.activeFields,
+      attachedListeners: memoryState.attachedListeners,
+      heapUsed: memoryState.performance.usedJSHeapSize
+    });
+  } catch (error) {
+    handleError('memory check', error);
+  }
+} 
