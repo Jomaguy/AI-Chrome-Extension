@@ -1,5 +1,28 @@
 console.log('%c AI Autocomplete Extension loaded ', 'background: #222; color: #bada55');
 
+// Utility function for debouncing
+function debounce(func, wait) {
+  let timeout;
+  return function executedFunction(...args) {
+    const later = () => {
+      clearTimeout(timeout);
+      func(...args);
+    };
+    clearTimeout(timeout);
+    timeout = setTimeout(later, wait);
+  };
+}
+
+// Debounce the input handler (300ms delay)
+const debouncedHandleInput = debounce((e) => {
+  console.log('Debounced text changed:', {
+    element: e.target,
+    value: e.target.value,
+    selectionStart: e.target.selectionStart,
+    selectionEnd: e.target.selectionEnd
+  });
+}, 300);
+
 function isTextField(element) {
   try {
     // Debug log
@@ -64,10 +87,7 @@ document.addEventListener('focusout', (e) => {
 
 // Handle text input
 function handleInput(e) {
-  console.log('Text changed:', {
-    element: e.target,
-    value: e.target.value,
-    selectionStart: e.target.selectionStart,
-    selectionEnd: e.target.selectionEnd
-  });
+  // Log immediately for debugging
+  console.log('Raw input event received');
+  debouncedHandleInput(e);
 } 
