@@ -1,21 +1,22 @@
 {
   "manifest_version": 3,
-  "name": "AI Text Autocomplete",
+  "name": "AI Text Assistant",
   "version": "1.0",
-  "description": "AI-powered text completion for any website",
+  "description": "AI-powered text assistance",
   "permissions": [
     "activeTab",
-    "scripting",
-    "clipboardRead",
-    "clipboardWrite"
+    "storage"
   ],
   "host_permissions": [
-    "*://*/*"
+    "https://generativelanguage.googleapis.com/*"
   ],
-  "content_scripts": [{
-    "matches": ["<all_urls>"],
-    "js": ["content.js"],
-    "css": ["styles.css"],
-    "run_at": "document_idle"
-  }]
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'self';"
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content.js"]
+    }
+  ]
 } 
