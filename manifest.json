@@ -19,7 +19,7 @@
       "matches": [
         "https://www.linkedin.com/*"
       ],
-      "js": ["profileDetector.js", "content.js"]
+      "js": ["profileStorage.js", "profileDetector.js", "content.js"]
     }
   ]
 } 

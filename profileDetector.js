@@ -137,7 +137,7 @@ function detectOwnProfile() {
   }
 }
 
-// Update updateProfileState function to fix timing
+// Update updateProfileState function to clear storage when leaving profile page
 function updateProfileState() {
   try {
     const currentURL = window.location.href;
@@ -172,18 +172,19 @@ function updateProfileState() {
             method: 'ui-detection'
           });
 
-          // Only attempt name extraction after verification is complete
+          // Only attempt extractions after verification is complete
           extractProfileName();
           extractProfileHeadline();
           extractCurrentPosition();
         }
       }, 1000);
-    } else {
-      // Clear profile info when not on profile page
+    } else if (!currentURL.includes('linkedin.com')) {
+      // Only clear data when leaving LinkedIn entirely
+      debugLog('Leaving LinkedIn, clearing profile data');
       profileState.currentProfile = null;
       profileState.isOwnProfile = false;
       
-      // Clear name info when leaving profile page
+      // Clear all state info
       profileState.nameInfo = {
         fullName: null,
         firstName: null,
@@ -194,7 +195,6 @@ function updateProfileState() {
         extractionMethod: null
       };
       
-      // Clear headline info when leaving profile page
       profileState.headlineInfo = {
         text: null,
         lastUpdated: null,
@@ -205,7 +205,6 @@ function updateProfileState() {
         language: null
       };
       
-      // Clear current position info when leaving profile page
       profileState.currentPositionInfo = {
         role: {
           title: null,
@@ -226,6 +225,9 @@ function updateProfileState() {
         extractionMethod: null,
         lastUpdated: new Date().toISOString()
       };
+
+      // Clear ProfileStorage when leaving LinkedIn
+      window.ProfileStorage.clearProfile();
     }
 
     debugLog('Profile state updated:', profileState);
@@ -377,9 +379,13 @@ function extractProfileName() {
       extractionMethod: 'dom-selector'
     };
 
+    // Store in ProfileStorage
+    window.ProfileStorage.updateProfile({
+      name: fullName
+    });
+
     debugLog('Name extraction successful:', profileState.nameInfo);
     return profileState.nameInfo;
-
   } catch (error) {
     debugLog('Error extracting name:', error);
     profileState.nameInfo.extractionSuccess = false;
@@ -439,9 +445,13 @@ function extractProfileHeadline() {
       language: null // Language detection could be added later
     };
 
+    // Store in ProfileStorage
+    window.ProfileStorage.updateProfile({
+      headline: headlineText
+    });
+
     debugLog('Headline extraction successful:', profileState.headlineInfo);
     return profileState.headlineInfo;
-
   } catch (error) {
     debugLog('Error extracting headline:', error);
     profileState.headlineInfo.extractionSuccess = false;
@@ -507,16 +517,21 @@ function extractCurrentPosition() {
     const titleText = titleElement.textContent.trim();
     const companyText = companyElement.textContent.trim().split(' · ')[0]; // Remove additional info after dot
 
-    // Update state with both title and company
+    // Update state
     profileState.currentPositionInfo.role.title = titleText;
     profileState.currentPositionInfo.role.lastUpdated = new Date().toISOString();
     profileState.currentPositionInfo.company.name = companyText;
     profileState.currentPositionInfo.extractionSuccess = true;
     profileState.currentPositionInfo.extractionMethod = 'dom-selector';
 
+    // Store in ProfileStorage
+    window.ProfileStorage.updateProfile({
+      currentRole: titleText,
+      company: companyText
+    });
+
     debugLog('Position extraction successful:', profileState.currentPositionInfo);
     return profileState.currentPositionInfo;
-
   } catch (error) {
     debugLog('Error extracting position:', error);
     profileState.currentPositionInfo.extractionSuccess = false;

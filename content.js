@@ -261,19 +261,86 @@ const retryState = {
 function formatPrompt(field) {
   const context = textContextState;
   
+  // Enhanced LinkedIn message context detection
+  const isContentEditable = field.getAttribute('contenteditable') === 'true';
+  const isInMessageContainer = !!(
+    field.closest('[data-messaging-container]') ||
+    field.closest('.msg-form__contenteditable') ||
+    field.closest('[data-control-name="message_body"]') ||
+    field.closest('[role="textbox"][contenteditable="true"]')
+  );
+  
+  const isLinkedInMessage = isContentEditable && isInMessageContainer;
+  
+  debugLog('[Prompt] Enhanced context check:', {
+    isContentEditable,
+    isInMessageContainer,
+    isLinkedInMessage,
+    hasProfileStorage: !!window.ProfileStorage,
+    fieldType: field.tagName,
+    fieldClasses: field.className,
+    parentClasses: field.parentElement?.className,
+    containerFound: field.closest('[data-messaging-container]') ? 'data-messaging' :
+                   field.closest('.msg-form__contenteditable') ? 'msg-form' :
+                   field.closest('[data-control-name="message_body"]') ? 'message-body' :
+                   field.closest('[role="textbox"]') ? 'textbox' : 'none'
+  });
+  
+  // Get profile data if available
+  let profileContext = '';
+  if (isLinkedInMessage && window.ProfileStorage) {
+    const profileData = window.ProfileStorage.getProfile();
+    
+    debugLog('[Prompt] Profile data retrieved:', {
+      hasData: !!profileData,
+      isValid: profileData?.isValid,
+      name: profileData?.name,
+      role: profileData?.currentRole,
+      company: profileData?.company,
+      headline: profileData?.headline
+    });
+
+    if (profileData?.isValid) {
+      profileContext = `CONTEXT: You are helping craft a message FROM ${profileData.name} (a ${profileData.currentRole} at ${profileData.company}). 
+SENDER'S BACKGROUND: ${profileData.headline}
+
+TASK: Help continue writing this message in ${profileData.name}'s professional voice:
+1. Write from the perspective of a ${profileData.currentRole} at ${profileData.company}
+2. Match the professional tone of someone with background as ${profileData.headline}
+3. Ensure the message reflects the sender's expertise and position
+
+DO NOT:
+- Do not add [${profileData.name}] or any name in brackets
+- Do not add "Sincerely" or signature blocks
+- Do not start a new message, only continue the existing one
+`;
+    } else {
+      debugLog('[Prompt] Invalid profile data:', {
+        profileData
+      });
+    }
+  }
+
+  // Log final prompt construction
+  debugLog('[Prompt] Final prompt:', {
+    hasProfileContext: !!profileContext,
+    profileContextLength: profileContext.length,
+    beforeCursor: context.beforeCursor,
+    afterCursor: context.afterCursor
+  });
+
+  // Combine profile context with text context
   return {
-    text: `Given the following text context:
+    text: `${profileContext}
+MESSAGE CONTEXT:
 Before cursor: "${context.beforeCursor}"
 After cursor: "${context.afterCursor}"
 Current word: "${context.wordContext?.currentWord || ''}"
 
-This is a text completion task. The input may contain common phrases or test sentences.
-Safety Context: This is a text editor completion task, common phrases are safe.
-
 Please provide a natural continuation that:
 1. Matches the writing style
 2. Continues from the cursor position
-3. Is contextually relevant
+3. Is contextually relevant and professional
 
 Provide only the continuation text without any explanation.`
   };
