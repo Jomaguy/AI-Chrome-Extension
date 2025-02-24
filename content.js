@@ -337,9 +337,9 @@ function processAIResponse(response, context, field) {
 
 // Update API client function
 async function generateAIContent(field, retryAttempt = 0) {
+  const requestId = Date.now();
+  
   try {
-    const requestId = Date.now();
-    
     // Track retry attempt
     retryState.attempts = retryAttempt;
     retryState.timestamp = new Date().toISOString();
@@ -352,7 +352,12 @@ async function generateAIContent(field, retryAttempt = 0) {
     
     retryState.lastPrompt = prompt;
     
+    // Get field text and selection info using our helper functions
+    const fieldText = getFieldValue(field);
+    const selectionInfo = getSelectionInfo(field);
+    
     debugLog('[API] Request with retry:', {
+      requestId,
       attempt: retryAttempt,
       promptLength: prompt.text.length
     });
@@ -360,16 +365,16 @@ async function generateAIContent(field, retryAttempt = 0) {
     apiTrackingState.lastRequest = {
       id: requestId,
       timestamp: new Date().toISOString(),
-      contextLength: field.value.length,
-      cursorPosition: field.selectionStart,
+      contextLength: fieldText.length,
+      cursorPosition: selectionInfo.start,
       prompt: prompt
     };
     apiTrackingState.requests.push(apiTrackingState.lastRequest);
     
     debugLog('[API] Request details:', {
       id: requestId,
-      contextLength: apiTrackingState.lastRequest.contextLength,
-      promptLength: apiTrackingState.lastRequest.prompt.text.length,
+      contextLength: fieldText.length,
+      promptLength: prompt.text.length,
       previousRequests: apiTrackingState.requests.length
     });
 
@@ -377,9 +382,9 @@ async function generateAIContent(field, retryAttempt = 0) {
     apiState.error = null;
     
     debugLog('[API] Generating content:', {
-      fieldId: field.id,
-      textLength: field.value.length,
-      cursorPosition: field.selectionStart
+      fieldId: field.id || 'no-id',
+      textLength: fieldText.length,
+      cursorPosition: selectionInfo.start
     });
     
     // Log request
@@ -442,11 +447,11 @@ async function generateAIContent(field, retryAttempt = 0) {
 
     return processed;
   } catch (error) {
-    // Track error
+    // Now requestId is accessible here
     apiTrackingState.errors.push({
       timestamp: new Date().toISOString(),
       message: error.message,
-      requestId: requestId,
+      requestId: requestId,  // This will work now
       type: error.name
     });
     throw error;
@@ -497,14 +502,13 @@ function attachFieldListeners(field) {
   };
   
   // Add selection handler
-  const onSelect = () => {
+  const onSelect = (e) => {
     try {
-      // Capture text context on selection
+      const field = e.target;
       captureTextContext(field);
-      
       debouncedSelectionUpdate(field);
     } catch (error) {
-      handleError('selection handler', error, field);
+      handleError('selection handler', error);
     }
   };
 
@@ -643,7 +647,7 @@ function attachFieldListeners(field) {
             ghostTextState.isVisible = true;
             
             // Show ghost text inline
-            const overlay = createGhostOverlay(field);
+            const overlay = createGhostTextOverlay(field, suggestion);
             const beforeText = textContextState.beforeCursor;
             const afterText = textContextState.afterCursor;
             
@@ -708,7 +712,7 @@ function attachFieldListeners(field) {
     field.addEventListener('mouseup', onSelect);
     field.addEventListener('keyup', (e) => {
       if (e.shiftKey || e.key === 'a' && (e.ctrlKey || e.metaKey)) {
-        onSelect();
+        onSelect(e);
       }
     });
     field.addEventListener('copy', onCopy);
@@ -1053,9 +1057,34 @@ const selectionState = {
 // Add this utility function near other utility functions
 function updateSelectionState(field) {
   try {
-    const start = field.selectionStart;
-    const end = field.selectionEnd;
-    const selected = field.value.substring(start, end);
+    if (!field) {
+      debugLog('[Selection] No field provided for selection update');
+      return;
+    }
+
+    let start = 0, end = 0, selected = '';
+    
+    // Handle contenteditable
+    if (field.getAttribute('contenteditable') === 'true') {
+      const text = field.textContent || field.innerText || '';
+      try {
+        const selection = window.getSelection();
+        if (selection && selection.rangeCount > 0) {
+          const range = selection.getRangeAt(0);
+          start = getTextOffset(field, range.startContainer, range.startOffset);
+          end = getTextOffset(field, range.endContainer, range.endOffset);
+          selected = text.substring(start, end);
+        }
+      } catch (selectionError) {
+        debugLog('[Selection] Range error:', selectionError);
+      }
+    } else {
+      // Regular input fields
+      const text = field.value || '';
+      start = field.selectionStart || 0;
+      end = field.selectionEnd || 0;
+      selected = text.substring(start, end);
+    }
     
     selectionState.selectedText = selected;
     selectionState.selectionStart = start;
@@ -1063,7 +1092,7 @@ function updateSelectionState(field) {
     selectionState.field = field;
     selectionState.timestamp = new Date().toISOString();
 
-    debugLog('Selection updated:', {
+    debugLog('[Selection] State updated:', {
       length: selected.length,
       start,
       end,
@@ -1071,7 +1100,7 @@ function updateSelectionState(field) {
       fieldId: field.id || 'no-id'
     });
   } catch (error) {
-    debugLog('Error updating selection state:', error);
+    handleError('updating selection state', error, field);
   }
 }
 
@@ -1081,14 +1110,13 @@ const debouncedSelectionUpdate = debounce((field) => {
 }, 150);  // Shorter than input debounce
 
 // Update the onSelect handler
-const onSelect = () => {
+const onSelect = (e) => {
   try {
-    // Capture text context on selection
+    const field = e.target;
     captureTextContext(field);
-    
     debouncedSelectionUpdate(field);
   } catch (error) {
-    handleError('selection handler', error, field);
+    handleError('selection handler', error);
   }
 };
 
@@ -1170,15 +1198,21 @@ function checkMemoryUsage() {
   }
 }
 
-// Add ghost text cleanup function
+// Update ghost text cleanup function with better error handling
 function cleanupGhostText() {
-  if (overlayState.activeOverlay) {
-    debugLog('[Ghost] Clearing overlay:', {
-      hadOverlay: true,
-      hadSuggestion: !!ghostTextState.suggestedText
-    });
-    
-    overlayState.activeOverlay.remove();
+  try {
+    if (overlayState.activeOverlay) {
+      debugLog('[Ghost] Clearing overlay:', {
+        hadOverlay: true,
+        hadSuggestion: !!ghostTextState.suggestedText
+      });
+      
+      overlayState.activeOverlay.remove();
+    }
+  } catch (error) {
+    handleError('cleaning up ghost text', error);
+  } finally {
+    // Always reset states even if removal fails
     overlayState.activeOverlay = null;
     ghostTextState.isVisible = false;
     ghostTextState.suggestedText = null;
@@ -1210,9 +1244,70 @@ function updateGhostTextState(field, text = null) {
   }
 }
 
-// Add near other utility functions
+// Update text context capture function
+function captureTextContext(field) {
+  try {
+    if (!field) {
+      debugLog('[Context] No field provided for text context capture');
+      return;
+    }
+
+    let text = '', cursorPos = 0;
+    
+    // Handle contenteditable fields
+    if (field.getAttribute('contenteditable') === 'true') {
+      text = field.textContent || field.innerText || '';
+      try {
+        const selection = window.getSelection();
+        if (selection && selection.rangeCount > 0) {
+          const range = selection.getRangeAt(0);
+          cursorPos = getTextOffset(field, range.startContainer, range.startOffset);
+        }
+      } catch (selectionError) {
+        debugLog('[Context] Selection error:', selectionError);
+        cursorPos = 0;
+      }
+    } else {
+      // Regular input fields
+      text = field.value || '';
+      cursorPos = field.selectionStart || 0;
+    }
+
+    // Only update context if we have text
+    if (text !== undefined) {
+      textContextState.beforeCursor = text.substring(0, cursorPos);
+      textContextState.afterCursor = text.substring(cursorPos);
+      textContextState.selectedText = getSelectionInfo(field).text;
+      textContextState.cursorPosition = cursorPos;
+      textContextState.lastUpdate = new Date().toISOString();
+      textContextState.contextLength = {
+        before: textContextState.beforeCursor.length,
+        after: textContextState.afterCursor.length,
+        total: text.length
+      };
+    }
+
+    debugLog('[Context] Text context captured:', {
+      hasText: !!text,
+      length: text.length,
+      cursorPos: cursorPos
+    });
+    
+  } catch (error) {
+    handleError('text context capture', error, field);
+  }
+}
+
+// Update getWordBoundaries to handle undefined text
 function getWordBoundaries(text, position) {
   try {
+    if (!text) return {
+      currentWord: '',
+      wordStart: 0,
+      wordEnd: 0,
+      isAtWordBoundary: true
+    };
+    
     // Get word at cursor
     const beforeCursor = text.slice(0, position);
     const afterCursor = text.slice(position);
@@ -1229,53 +1324,38 @@ function getWordBoundaries(text, position) {
     };
   } catch (error) {
     handleError('word boundaries', error);
-    return null;
-  }
-}
-
-// Update text context capture
-function captureTextContext(field) {
-  try {
-    const cursorPos = field.selectionStart;
-    const text = field.value;
-    
-    const wordContext = getWordBoundaries(text, cursorPos);
-    
-    textContextState.beforeCursor = text.substring(0, cursorPos);
-    textContextState.afterCursor = text.substring(cursorPos);
-    textContextState.selectedText = text.substring(field.selectionStart, field.selectionEnd);
-    textContextState.cursorPosition = cursorPos;
-    textContextState.lastUpdate = new Date().toISOString();
-    textContextState.contextLength = {
-      before: textContextState.beforeCursor.length,
-      after: textContextState.afterCursor.length,
-      total: text.length
+    return {
+      currentWord: '',
+      wordStart: 0,
+      wordEnd: 0,
+      isAtWordBoundary: true
     };
-    textContextState.wordContext = wordContext;
-    
-    // Only log errors now
-  } catch (error) {
-    handleError('text context capture', error, field);
   }
 }
 
 // Add validation function
 function validateContext(field) {
   try {
-    const minLength = 3; // Minimum characters needed
+    const minLength = 3;
+    const text = getFieldValue(field);
+    
     const context = {
       isValid: false,
       validationErrors: [],
-      textLength: field.value.length
+      textLength: text.length
     };
 
-    // Check text length
-    if (field.value.length < minLength) {
+    if (text.length < minLength) {
       context.validationErrors.push('Text too short');
     }
 
-    // Check if cursor is in valid position
-    if (field.selectionStart !== field.selectionEnd) {
+    // For contenteditable, check selection differently
+    if (field.getAttribute('contenteditable') === 'true') {
+      const selection = window.getSelection();
+      if (selection.toString().length > 0) {
+        context.validationErrors.push('Text must not be selected');
+      }
+    } else if (field.selectionStart !== field.selectionEnd) {
       context.validationErrors.push('Text must not be selected');
     }
 
@@ -1283,7 +1363,11 @@ function validateContext(field) {
     return context;
   } catch (error) {
     handleError('context validation', error, field);
-    return null;
+    return {
+      isValid: false,
+      validationErrors: ['Validation failed'],
+      textLength: 0
+    };
   }
 }
 
@@ -1391,40 +1475,89 @@ function updateOverlayPosition() {
   overlay.style.height = `${fieldRect.height}px`;
 }
 
-// Update createGhostOverlay function
-function createGhostOverlay(field) {
-  // Remove existing overlay if any
-  if (overlayState.activeOverlay) {
-    overlayState.activeOverlay.remove();
-    window.removeEventListener('scroll', overlayState.scrollListener);
-    window.removeEventListener('resize', overlayState.resizeListener);
+// Update createGhostTextOverlay function
+function createGhostTextOverlay(field, text) {
+  try {
+    // Remove any existing overlay
+    if (overlayState.activeOverlay) {
+      overlayState.activeOverlay.remove();
+    }
+
+    // Get computed styles from LinkedIn's input
+    const computedStyle = window.getComputedStyle(field);
+    
+    // Create ghost text container
+    const ghostContainer = document.createElement('div');
+    ghostContainer.className = 'ai-ghost-text';
+    
+    // Copy critical text styling properties
+    const stylesToCopy = [
+      'font-family',
+      'font-size',
+      'font-weight',
+      'line-height',
+      'letter-spacing',
+      'white-space',
+      'word-break',
+      'word-wrap',
+      'word-spacing',
+      'text-align',
+      'padding-top',
+      'padding-right',
+      'padding-bottom',
+      'padding-left',
+      'width',
+      'box-sizing'
+    ];
+
+    // Apply styles
+    stylesToCopy.forEach(style => {
+      ghostContainer.style[style] = computedStyle[style];
+    });
+
+    // Additional positioning styles
+    ghostContainer.style.position = 'absolute';
+    ghostContainer.style.top = '0';
+    ghostContainer.style.left = '0';
+    ghostContainer.style.color = 'rgba(136, 136, 136, 0.533)';
+    ghostContainer.style.pointerEvents = 'none';
+    ghostContainer.style.zIndex = '1000';
+    ghostContainer.style.backgroundColor = 'transparent';
+
+    // Create and style the suggestion text
+    const existingText = field.textContent || field.value || '';
+    const ghostSpan = document.createElement('span');
+    ghostSpan.className = 'ai-ghost-suggestion';
+    ghostSpan.textContent = text;
+
+    // Add to container
+    ghostContainer.appendChild(ghostSpan);
+
+    // Position relative to field
+    const fieldRect = field.getBoundingClientRect();
+    ghostContainer.style.width = `${fieldRect.width}px`;
+
+    // Add to page
+    field.parentElement.appendChild(ghostContainer);
+    
+    // Store reference
+    overlayState.activeOverlay = ghostContainer;
+
+    debugLog('[Ghost] Overlay created:', {
+      hasGhostSpan: true,
+      overlayContent: text,
+      styles: {
+        width: ghostContainer.style.width,
+        lineHeight: ghostContainer.style.lineHeight,
+        wordBreak: ghostContainer.style.wordBreak
+      }
+    });
+
+    return ghostContainer;
+  } catch (error) {
+    handleError('creating ghost overlay', error, field);
+    return null;
   }
-
-  const overlay = document.createElement('div');
-  overlay.className = 'ai-ghost-text';
-  
-  // Store active elements
-  overlayState.activeOverlay = overlay;
-  overlayState.activeField = field;
-  
-  // Add debug logging
-  debugLog('[Ghost] Overlay state updated:', {
-    hasOverlay: true,
-    hasSuggestion: !!ghostTextState.suggestedText
-  });
-
-  // Add scroll and resize listeners
-  overlayState.scrollListener = () => requestAnimationFrame(updateOverlayPosition);
-  overlayState.resizeListener = () => requestAnimationFrame(updateOverlayPosition);
-  
-  window.addEventListener('scroll', overlayState.scrollListener, { passive: true });
-  window.addEventListener('resize', overlayState.resizeListener, { passive: true });
-  
-  // Initial position
-  updateOverlayPosition();
-  
-  document.body.appendChild(overlay);
-  return overlay;
 }
 
 // Add loading indicator creation
@@ -1581,68 +1714,122 @@ function calculateStyleMatch(style1, style2) {
   }
 }
 
-// Update handleKeyDown function
+// Update handleKeyDown function with better cleanup handling
 function handleKeyDown(e) {
-  // Add debug logging
+  const field = e.target;
+  
   debugLog('[Keyboard] Key pressed:', {
     key: e.key,
     ctrl: e.ctrlKey,
     meta: e.metaKey,
     shift: e.shiftKey,
     hasOverlay: !!overlayState.activeOverlay,
-    hasSuggestion: !!ghostTextState.suggestedText
+    hasSuggestion: !!ghostTextState.suggestedText,
+    fieldType: field.tagName
   });
 
   // Accept with Command/Ctrl + Shift + Space
   if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key === ' ') {
     e.preventDefault();
-    e.stopPropagation();  // Stop event from bubbling
+    e.stopPropagation();
     
-    if (!overlayState.activeOverlay || !ghostTextState.suggestedText) {
-      debugLog('[Accept] No active suggestion to accept');
-      return;
+    try {
+      if (!ghostTextState.suggestedText) {
+        debugLog('[Accept] No suggestion to accept');
+        return;
+      }
+
+      const suggestion = ghostTextState.suggestedText;
+      cleanupGhostText();
+      
+      // Handle contenteditable fields
+      if (field.getAttribute('contenteditable') === 'true') {
+        const beforeText = textContextState.beforeCursor;
+        const afterText = textContextState.afterCursor;
+        
+        const trimmedSuggestion = suggestion.trimStart();
+        const needsSpace = beforeText && !beforeText.match(/\s$/) && !trimmedSuggestion.match(/^\s/);
+        const finalText = beforeText + (needsSpace ? ' ' : '') + trimmedSuggestion + afterText;
+        
+        // Update text
+        if (!updateLinkedInMessageBox(field, finalText)) {
+          field.textContent = finalText;
+        }
+        
+        // Improved cursor positioning
+        try {
+          const selection = window.getSelection();
+          const range = document.createRange();
+          
+          // Find the text node inside <p>
+          const pElement = field.querySelector('p');
+          if (!pElement) {
+            throw new Error('No <p> element found');
+          }
+          
+          const textNode = pElement.firstChild;
+          if (!textNode) {
+            throw new Error('No text node found');
+          }
+          
+          // Calculate new cursor position
+          const newPosition = beforeText.length + (needsSpace ? 1 : 0) + trimmedSuggestion.length;
+          
+          debugLog('[LinkedIn] Setting cursor:', {
+            position: newPosition,
+            textLength: textNode.length,
+            nodeType: textNode.nodeType,
+            parentTag: textNode.parentNode.tagName
+          });
+          
+          // Set cursor position
+          range.setStart(textNode, Math.min(newPosition, textNode.length));
+          range.setEnd(textNode, Math.min(newPosition, textNode.length));
+          
+          selection.removeAllRanges();
+          selection.addRange(range);
+          
+          field.focus();
+        } catch (error) {
+          debugLog('[LinkedIn] Cursor position error:', {
+            message: error.message,
+            textLength: finalText.length
+          });
+          // Even if cursor positioning fails, text update succeeded
+          field.focus();
+        }
+      } else {
+        // Regular input fields remain unchanged
+        const beforeText = textContextState.beforeCursor;
+        const afterText = textContextState.afterCursor;
+        
+        const trimmedSuggestion = suggestion.trimStart();
+        const needsSpace = beforeText && !beforeText.match(/\s$/) && !trimmedSuggestion.match(/^\s/);
+        
+        field.value = beforeText + (needsSpace ? ' ' : '') + trimmedSuggestion + afterText;
+        
+        const newCursorPos = beforeText.length + (needsSpace ? 1 : 0) + trimmedSuggestion.length;
+        field.selectionStart = newCursorPos;
+        field.selectionEnd = newCursorPos;
+      }
+      
+      showSuccess();
+      
+      debugLog('[Accept] Suggestion accepted:', {
+        fieldType: field.tagName,
+        contentEditable: field.getAttribute('contenteditable') === 'true',
+        suggestionLength: suggestion.length
+      });
+    } catch (error) {
+      handleError('accepting suggestion', error, field);
+      showError('Failed to accept suggestion');
+      cleanupGhostText();
     }
-    
-    const field = e.target;
-    const suggestion = ghostTextState.suggestedText;
-    
-    debugLog('[Accept] Attempting to accept suggestion:', {
-      hasSuggestion: true,
-      suggestion: suggestion,
-      fieldValue: field.value
-    });
-    
-    // Update field value with suggestion
-    const beforeText = textContextState.beforeCursor;
-    const afterText = textContextState.afterCursor;
-    
-    // Trim any extra spaces between sections
-    const trimmedSuggestion = suggestion.trimStart(); // Remove leading spaces
-    const needsSpace = beforeText && !beforeText.match(/\s$/) && !trimmedSuggestion.match(/^\s/);
-    
-    field.value = beforeText + (needsSpace ? ' ' : '') + trimmedSuggestion + afterText;
-    
-    // Move cursor to end of suggestion
-    const newCursorPos = beforeText.length + (needsSpace ? 1 : 0) + trimmedSuggestion.length;
-    field.selectionStart = newCursorPos;
-    field.selectionEnd = newCursorPos;
-    
-    // Clear ghost text
-    overlayState.activeOverlay.remove();
-    overlayState.activeOverlay = null;
-    ghostTextState.isVisible = false;
-    ghostTextState.suggestedText = null;
-    
-    showSuccess();
   }
   
   // Clear with Escape
-  if (e.key === 'Escape' && overlayState.activeOverlay) {
-    e.preventDefault();
-    overlayState.activeOverlay.remove();
-    overlayState.activeOverlay = null;
-    ghostTextState.isVisible = false;
-    ghostTextState.suggestedText = null;
+  if (e.key === 'Escape') {
+    cleanupGhostText();
   }
 }
 
@@ -1724,4 +1911,270 @@ async function handleSafetyResponse(candidate, safetyLevel, field) {
     safetyDetails: safetyAnalysis,
     scores: { relevance: 0, style: 0 }
   };
+}
+
+function getFieldValue(field) {
+  try {
+    // Special handling for LinkedIn message box
+    if (field.getAttribute('contenteditable') === 'true' && 
+        field.closest('[data-messaging-container]')) {
+      return field.textContent || field.innerText || '';
+    }
+    
+    // Regular fields
+    return field.value || field.textContent || field.innerText || '';
+  } catch (error) {
+    handleError('getting field value', error, field);
+    return '';
+  }
+}
+
+function getSelectionInfo(field) {
+  try {
+    // Handle contenteditable fields
+    if (field.getAttribute('contenteditable') === 'true') {
+      const selection = window.getSelection();
+      const range = selection.getRangeAt(0);
+      const text = field.textContent || field.innerText || '';
+      return {
+        start: getTextOffset(field, range.startContainer, range.startOffset),
+        end: getTextOffset(field, range.endContainer, range.endOffset),
+        text: text
+      };
+    }
+    
+    // Handle regular input fields
+    return {
+      start: field.selectionStart,
+      end: field.selectionEnd,
+      text: field.value || ''
+    };
+  } catch (error) {
+    handleError('getting selection info', error, field);
+    return {
+      start: 0,
+      end: 0,
+      text: ''
+    };
+  }
+}
+
+// Helper function to get text offset in contenteditable
+function getTextOffset(parent, node, offset) {
+  let totalOffset = 0;
+  const walker = document.createTreeWalker(
+    parent,
+    NodeFilter.SHOW_TEXT,
+    null,
+    false
+  );
+
+  let currentNode;
+  while ((currentNode = walker.nextNode())) {
+    if (currentNode === node) {
+      return totalOffset + offset;
+    }
+    totalOffset += currentNode.length;
+  }
+  return totalOffset;
+}
+
+// Add improved LinkedIn message box handling
+function updateLinkedInMessageBox(field, text) {
+  let observer = null;
+  try {
+    const editableDiv = field.closest('[contenteditable="true"]');
+    if (!editableDiv) {
+      debugLog('[LinkedIn] No editable div found');
+      return false;
+    }
+
+    // Log initial state
+    debugLog('[LinkedIn] Initial state:', {
+      currentText: editableDiv.textContent,
+      newText: text,
+      fieldType: editableDiv.tagName,
+      style: window.getComputedStyle(editableDiv).color,
+      hasPlaceholder: !!editableDiv.parentElement?.querySelector('[data-placeholder]'),
+      isFocused: document.activeElement === editableDiv,
+      hasP: !!editableDiv.querySelector('p')
+    });
+
+    // Store focus state and mark updating
+    const wasActive = document.activeElement === editableDiv;
+    editableDiv.dataset.aiUpdating = 'true';
+    
+    // Set up enhanced observer
+    observer = new MutationObserver((mutations) => {
+      // Skip if we're updating
+      if (editableDiv.dataset.aiUpdating === 'true') {
+        debugLog('[LinkedIn] Skipping mutation while updating');
+        return;
+      }
+
+      debugLog('[LinkedIn] Processing mutations:', {
+        count: mutations.length,
+        types: mutations.map(m => m.type),
+        changes: mutations.map(m => ({
+          type: m.type,
+          target: m.target.tagName,
+          addedNodes: m.addedNodes.length,
+          removedNodes: m.removedNodes.length
+        }))
+      });
+
+      // Check if we need to restore state
+      const currentText = editableDiv.textContent;
+      if (currentText !== text) {
+        debugLog('[LinkedIn] State mismatch detected:', {
+          current: currentText,
+          expected: text,
+          restoreAttempts: observer.__restoreAttempts || 0
+        });
+
+        // Restore state
+        editableDiv.dataset.aiUpdating = 'true';
+        
+        // Preserve HTML structure
+        let pElement = editableDiv.querySelector('p');
+        if (!pElement) {
+          pElement = document.createElement('p');
+          editableDiv.appendChild(pElement);
+        }
+        pElement.textContent = text.replace(/ /g, '\u00A0');
+
+        observer.__restoreAttempts = (observer.__restoreAttempts || 0) + 1;
+        
+        debugLog('[LinkedIn] State restored:', {
+          success: editableDiv.textContent === text,
+          attempts: observer.__restoreAttempts
+        });
+
+        // Clear updating flag after delay
+        setTimeout(() => {
+          delete editableDiv.dataset.aiUpdating;
+        }, 0);
+      }
+    });
+
+    // Start observing with detailed config
+    observer.observe(editableDiv, {
+      childList: true,
+      characterData: true,
+      subtree: true,
+      attributes: true,
+      attributeFilter: ['contenteditable', 'data-placeholder']
+    });
+
+    debugLog('[LinkedIn] Observer connected:', {
+      target: editableDiv.tagName,
+      config: {
+        childList: true,
+        characterData: true,
+        subtree: true,
+        attributes: true
+      }
+    });
+
+    // Update text content
+    let pElement = editableDiv.querySelector('p');
+    if (!pElement) {
+      pElement = document.createElement('p');
+      editableDiv.appendChild(pElement);
+    }
+
+    // Log before text update
+    debugLog('[LinkedIn] Before text update:', {
+      innerHTML: editableDiv.innerHTML,
+      childNodes: editableDiv.childNodes.length,
+      hasTextNode: editableDiv.firstChild?.nodeType === Node.TEXT_NODE
+    });
+
+    // Handle spaces and text insertion
+    const formattedText = text.replace(/ /g, '\u00A0');
+    pElement.textContent = formattedText;
+
+    // Log after text update
+    debugLog('[LinkedIn] After text update:', {
+      innerHTML: editableDiv.innerHTML,
+      childNodes: editableDiv.childNodes.length,
+      hasP: !!editableDiv.querySelector('p'),
+      textContent: editableDiv.textContent,
+      style: window.getComputedStyle(editableDiv).color
+    });
+
+    // Handle placeholder
+    const placeholder = editableDiv.parentElement?.querySelector('[data-placeholder]');
+    if (placeholder) {
+      debugLog('[LinkedIn] Placeholder state:', {
+        found: true,
+        willHide: text.length > 0,
+        currentDisplay: placeholder.style.display,
+        parentHasText: !!editableDiv.textContent
+      });
+      placeholder.style.display = text.length > 0 ? 'none' : 'block';
+    }
+
+    // Dispatch events
+    const events = [
+      new InputEvent('input', {
+        bubbles: true,
+        cancelable: true,
+        inputType: 'insertText',
+        data: text
+      }),
+      new Event('change', { bubbles: true })
+    ];
+
+    events.forEach((event, index) => {
+      editableDiv.dispatchEvent(event);
+      debugLog(`[LinkedIn] After event ${index}:`, {
+        eventType: event.type,
+        isFocused: document.activeElement === editableDiv,
+        text: editableDiv.textContent,
+        style: window.getComputedStyle(editableDiv).color
+      });
+    });
+
+    // Add cleanup in a timeout to ensure events are processed
+    setTimeout(() => {
+      debugLog('[LinkedIn] Starting cleanup');
+      
+      // Disconnect observer
+      if (observer) {
+        observer.disconnect();
+        debugLog('[LinkedIn] Observer disconnected');
+      }
+
+      // Clear updating flag
+      delete editableDiv.dataset.aiUpdating;
+
+      // Restore focus if needed
+      if (wasActive) {
+        editableDiv.focus();
+        debugLog('[LinkedIn] Focus restored');
+      }
+
+      debugLog('[LinkedIn] Cleanup completed:', {
+        hasObserver: !!observer,
+        isUpdating: !!editableDiv.dataset.aiUpdating,
+        hasFocus: document.activeElement === editableDiv
+      });
+    }, 100);
+
+    return true;
+  } catch (error) {
+    // Ensure cleanup even on error
+    if (observer) {
+      observer.disconnect();
+      debugLog('[LinkedIn] Observer disconnected after error');
+    }
+    
+    debugLog('[LinkedIn] Error:', {
+      message: error.message,
+      stack: error.stack
+    });
+    handleError('updating LinkedIn message box', error, field);
+    return false;
+  }
 } 
