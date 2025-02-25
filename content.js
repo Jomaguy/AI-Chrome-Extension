@@ -1,5 +1,5 @@
 // Debug mode flag
-const CONTENT_DEBUG = true;
+const CONTENT_DEBUG = false;
 
 // Update our logging utility with a distinct prefix
 function debugLog(...args) {
@@ -229,8 +229,8 @@ const visualState = {
 
 // Update API state
 const apiState = {
-  key: 'AIzaSyA2GUYnGCYlR5v4iugHBNBU4so7bjGoYFA',
-  baseUrl: 'https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent',
+  key: 'AIzaSyB14PeansiyH64kwo3v_9LwdryJVEUNtgs',
+  baseUrl: 'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent',
   isProcessing: false,
   lastRequest: null,
   lastResponse: null,

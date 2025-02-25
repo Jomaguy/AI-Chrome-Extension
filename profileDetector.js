@@ -1,5 +1,5 @@
 // Change from DEBUG to PROFILE_DEBUG
-const PROFILE_DEBUG = true;
+const PROFILE_DEBUG = false;
 
 // Debug logging utility
 function debugLog(...args) {
@@ -138,7 +138,7 @@ function detectOwnProfile() {
 }
 
 // Update updateProfileState function to clear storage when leaving profile page
-function updateProfileState() {
+async function updateProfileState() {
   try {
     const currentURL = window.location.href;
     const pageInfo = detectPageType(currentURL);
@@ -157,27 +157,31 @@ function updateProfileState() {
     // Handle profile pages
     if (pageInfo.type === 'profile') {
       // Add delay to allow page to load
-      setTimeout(() => {
-        const isOwnProfile = detectOwnProfile();
-        profileState.isOwnProfile = isOwnProfile;
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      
+      const isOwnProfile = detectOwnProfile();
+      profileState.isOwnProfile = isOwnProfile;
+      
+      // First update verification if it's own profile
+      if (isOwnProfile && pageInfo.username) {
+        ownProfileState.username = pageInfo.username;
+        ownProfileState.lastVerified = new Date().toISOString();
+        ownProfileState.verificationMethod = 'ui-detection';
         
-        // First update verification if it's own profile
-        if (isOwnProfile && pageInfo.username) {
-          ownProfileState.username = pageInfo.username;
-          ownProfileState.lastVerified = new Date().toISOString();
-          ownProfileState.verificationMethod = 'ui-detection';
-          
-          debugLog('Own profile verified:', {
-            username: pageInfo.username,
-            method: 'ui-detection'
-          });
+        debugLog('Own profile verified:', {
+          username: pageInfo.username,
+          method: 'ui-detection'
+        });
 
-          // Only attempt extractions after verification is complete
-          extractProfileName();
-          extractProfileHeadline();
-          extractCurrentPosition();
-        }
-      }, 1000);
+        // Only attempt extractions after verification is complete
+        debugLog('Starting profile data extraction');
+        await Promise.all([
+          extractProfileName(),
+          extractProfileHeadline(),
+          extractCurrentPosition()
+        ]);
+        debugLog('Profile data extraction complete');
+      }
     } else if (!currentURL.includes('linkedin.com')) {
       // Only clear data when leaving LinkedIn entirely
       debugLog('Leaving LinkedIn, clearing profile data');
@@ -243,10 +247,10 @@ function initializeURLMonitoring() {
 
   // Watch for URL changes
   const observer = new MutationObserver((mutations) => {
-    mutations.forEach(() => {
+    mutations.forEach(async () => {
       if (window.location.href !== profileState.currentURL) {
         debugLog('URL changed, updating state');
-        updateProfileState();
+        await updateProfileState();
       }
     });
   });
@@ -261,14 +265,15 @@ function initializeURLMonitoring() {
 }
 
 // Initialize on load
-document.addEventListener('DOMContentLoaded', initializeURLMonitoring);
+document.addEventListener('DOMContentLoaded', () => {
+  initializeURLMonitoring();
+});
 
 // Export for use in content.js
 window.ProfileDetector = {
   profileState,
   detectPageType,
-  updateProfileState,
-  test: testProfileDetector
+  updateProfileState
 };
 
 // Update the initialization function
@@ -276,56 +281,19 @@ window.ProfileDetector = {
   try {
     // Ensure initialization happens
     if (document.readyState === 'loading') {
-      document.addEventListener('DOMContentLoaded', () => {
+      document.addEventListener('DOMContentLoaded', async () => {
         initializeURLMonitoring();
-        // Run test after a delay to allow page load
-        setTimeout(testProfileDetector, 2000);
       });
     } else {
       initializeURLMonitoring();
-      // Run test after a delay to allow page load
-      setTimeout(testProfileDetector, 2000);
     }
-    
-    debugLog('ProfileDetector initialized successfully', {
-      state: profileState
-    });
   } catch (error) {
     console.error('[Profile] Initialization failed:', error);
   }
 })();
 
-// Update the test function to include position information
-function testProfileDetector() {
-  debugLog('=== Profile Detector Test ===');
-  debugLog('Current State:', profileState);
-  debugLog('Current URL:', window.location.href);
-  debugLog('Page Type:', profileState.pageType);
-  debugLog('Is Own Profile:', profileState.isOwnProfile);
-  debugLog('Own Profile Info:', ownProfileState);
-  debugLog('Name Info:', profileState.nameInfo);
-  debugLog('Headline Info:', profileState.headlineInfo);
-  debugLog('Current Position Info:', profileState.currentPositionInfo);
-  debugLog('=== Test Complete ===');
-}
-
-// Add this after initialization
-function addDebugButton() {
-  const button = document.createElement('button');
-  button.textContent = 'Test Profile Detector';
-  button.style.position = 'fixed';
-  button.style.bottom = '20px';
-  button.style.right = '20px';
-  button.style.zIndex = '9999';
-  button.addEventListener('click', testProfileDetector);
-  document.body.appendChild(button);
-}
-
-// Add to initialization
-document.addEventListener('DOMContentLoaded', addDebugButton);
-
 // Add name extraction function
-function extractProfileName() {
+async function extractProfileName() {
   // First check if this is our own profile
   if (!profileState.isOwnProfile) {
     debugLog('Skipping name extraction - not own profile');
@@ -380,9 +348,11 @@ function extractProfileName() {
     };
 
     // Store in ProfileStorage
-    window.ProfileStorage.updateProfile({
+    debugLog('Attempting to store name in ProfileStorage:', fullName);
+    const storageResult = await window.ProfileStorage.updateProfile({
       name: fullName
     });
+    debugLog('Name storage result:', storageResult);
 
     debugLog('Name extraction successful:', profileState.nameInfo);
     return profileState.nameInfo;
@@ -394,7 +364,7 @@ function extractProfileName() {
   }
 }
 
-function extractProfileHeadline() {
+async function extractProfileHeadline() {
   // First check if this is our own profile
   if (!profileState.isOwnProfile) {
     debugLog('Skipping headline extraction - not own profile');
@@ -446,9 +416,11 @@ function extractProfileHeadline() {
     };
 
     // Store in ProfileStorage
-    window.ProfileStorage.updateProfile({
+    debugLog('Attempting to store headline in ProfileStorage:', headlineText);
+    const storageResult = await window.ProfileStorage.updateProfile({
       headline: headlineText
     });
+    debugLog('Headline storage result:', storageResult);
 
     debugLog('Headline extraction successful:', profileState.headlineInfo);
     return profileState.headlineInfo;
@@ -460,7 +432,7 @@ function extractProfileHeadline() {
   }
 }
 
-function extractCurrentPosition() {
+async function extractCurrentPosition() {
   // First check if this is our own profile
   if (!profileState.isOwnProfile) {
     debugLog('Skipping position extraction - not own profile');
@@ -525,10 +497,12 @@ function extractCurrentPosition() {
     profileState.currentPositionInfo.extractionMethod = 'dom-selector';
 
     // Store in ProfileStorage
-    window.ProfileStorage.updateProfile({
+    debugLog('Attempting to store position in ProfileStorage:', { role: titleText, company: companyText });
+    const storageResult = await window.ProfileStorage.updateProfile({
       currentRole: titleText,
       company: companyText
     });
+    debugLog('Position storage result:', storageResult);
 
     debugLog('Position extraction successful:', profileState.currentPositionInfo);
     return profileState.currentPositionInfo;

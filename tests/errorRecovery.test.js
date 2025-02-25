@@ -1,3 +1,36 @@
+// Set test environment flag
+window.isTestEnvironment = true;
+
+// Test runner function
+async function runErrorRecoveryTests() {
+  if (!window.isTestEnvironment) {
+    console.warn('Tests can only run in test environment');
+    return;
+  }
+
+  console.log('=== Starting Error Recovery Tests ===');
+  
+  try {
+    // Reset state before tests
+    await StorageManagerTest.resetTestState();
+    
+    await this.testDebugLogging();
+    await this.testErrorHandling();
+    await this.testRetryOperation();
+    console.log('✅ All tests completed successfully');
+  } catch (error) {
+    console.error('❌ Test suite failed:', error);
+  } finally {
+    // Clean up after tests
+    await StorageManagerTest.clearAllData();
+  }
+}
+
+// Only export in test environment
+if (window.isTestEnvironment) {
+  window.runErrorRecoveryTests = runErrorRecoveryTests;
+}
+
 // Error Recovery Test Suite
 const ErrorRecoveryTests = {
   async runTests() {
@@ -79,13 +112,6 @@ const ErrorRecoveryTests = {
     }
   }
 };
-
-// Auto-run tests when in development mode
-if (ErrorRecovery.Config.debug) {
-  setTimeout(() => {
-    ErrorRecoveryTests.runTests();
-  }, 1000); // Small delay to ensure ErrorRecovery is fully initialized
-}
 
 // Export for manual testing
 window.ErrorRecoveryTests = ErrorRecoveryTests; 

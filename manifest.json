@@ -24,11 +24,8 @@
       ],
       "js": [
         "errorRecovery.js",
-        "errorRecovery.test.js",
         "storageLayerManager.js",
-        "storageLayerManager.test.js",
         "storageManager.js",
-        "storageManager.test.js",
         "profileStorage.js",
         "profileDetector.js",
         "content.js"

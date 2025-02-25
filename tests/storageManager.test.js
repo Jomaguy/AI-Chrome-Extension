@@ -1,3 +1,36 @@
+// Set test environment flag
+window.isTestEnvironment = true;
+
+// Test runner function
+async function runStorageManagerTests() {
+  if (!window.isTestEnvironment) {
+    console.warn('Tests can only run in test environment');
+    return;
+  }
+
+  console.log('=== Starting Storage Manager Tests ===');
+  
+  try {
+    // Reset state before tests
+    await StorageManagerTest.resetTestState();
+    
+    await this.testBasicOperations();
+    await this.testRetryOnFailure();
+    await this.testValidationWithRetry();
+    console.log('✅ All Storage Manager tests completed successfully');
+  } catch (error) {
+    console.error('Test failed:', error);
+  } finally {
+    // Clean up after tests
+    await StorageManagerTest.clearAllData();
+  }
+}
+
+// Only export in test environment
+if (window.isTestEnvironment) {
+  window.runStorageManagerTests = runStorageManagerTests;
+}
+
 // Storage Manager Test Suite
 const StorageManagerTests = {
   async runTests() {
@@ -143,13 +176,6 @@ const StorageManagerTests = {
     }
   }
 };
-
-// Auto-run tests when in development mode
-if (STORAGE_MANAGER_DEBUG) {
-  setTimeout(() => {
-    StorageManagerTests.runTests();
-  }, 1000); // Small delay to ensure StorageManager is fully initialized
-}
 
 // Export for manual testing
 window.StorageManagerTests = StorageManagerTests; 

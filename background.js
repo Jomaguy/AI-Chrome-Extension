@@ -1,5 +1,5 @@
 // Debug mode flag
-const BACKGROUND_DEBUG = true;
+const BACKGROUND_DEBUG = false;
 
 // Debug logging utility
 function debugLog(...args) {

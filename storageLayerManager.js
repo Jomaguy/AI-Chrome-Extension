@@ -1,5 +1,5 @@
 // Debug mode flag
-const STORAGE_LAYER_DEBUG = true;
+const STORAGE_LAYER_DEBUG = false;
 
 // Debug logging utility
 function debugLog(...args) {

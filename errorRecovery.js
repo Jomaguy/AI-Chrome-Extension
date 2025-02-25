@@ -1,5 +1,5 @@
 // Debug mode flag
-const ERROR_RECOVERY_DEBUG = true;
+const ERROR_RECOVERY_DEBUG = false;
 
 // Debug logging utility
 function debugLog(...args) {
@@ -18,7 +18,7 @@ const StorageErrors = {
 
 // Configuration
 const Config = {
-  debug: true,
+  debug: false,
   maxRetries: 3,
   retryDelay: 1000, // Base delay in ms
   maxDelay: 5000,   // Maximum delay in ms

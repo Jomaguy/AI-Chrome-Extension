@@ -1,3 +1,40 @@
+// Set test environment flag
+window.isTestEnvironment = true;
+
+// Test runner function
+async function runStorageLayerTests() {
+  if (!window.isTestEnvironment) {
+    console.warn('Tests can only run in test environment');
+    return;
+  }
+
+  console.log('=== Starting Storage Layer Tests ===');
+  
+  try {
+    // Reset state before tests
+    await StorageManagerTest.resetTestState();
+    
+    await this.testInitialization();
+    await this.testBasicOperations();
+    await this.testFallbackMechanism();
+    await this.testLayerRecovery();
+    console.log('✅ All Storage Layer tests completed successfully');
+  } catch (error) {
+    console.error('Test failed:', error);
+  } finally {
+    // Clean up after tests
+    await StorageManagerTest.clearAllData();
+  }
+}
+
+// Only export in test environment
+if (window.isTestEnvironment) {
+  window.runStorageLayerTests = runStorageLayerTests;
+}
+
+// Remove auto-execution
+// runStorageLayerTests(); // This line should be removed
+
 // Storage Layer Manager Test Suite
 const StorageLayerTests = {
   async runTests() {
@@ -144,12 +181,12 @@ const StorageLayerTests = {
   }
 };
 
-// Auto-run tests when in development mode
-if (STORAGE_LAYER_DEBUG) {
-  setTimeout(() => {
-    StorageLayerTests.runTests();
-  }, 1000); // Small delay to ensure StorageLayerManager is fully initialized
-}
-
 // Export for manual testing
-window.StorageLayerTests = StorageLayerTests; 
+window.StorageLayerTests = StorageLayerTests;
+
+// Remove auto-run code
+// if (STORAGE_LAYER_DEBUG) {
+//   setTimeout(() => {
+//     StorageLayerTests.runTests();
+//   }, 1000);
+// } 
