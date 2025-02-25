@@ -1,9 +1,9 @@
 // Debug mode flag
-const STORAGE_DEBUG = true;
+const PROFILE_STORAGE_DEBUG = true;
 
 // Debug logging utility
 function debugLog(...args) {
-  if (!STORAGE_DEBUG) return;
+  if (!PROFILE_STORAGE_DEBUG) return;
   
   const [message, ...rest] = args;
   const prefix = '[ProfileStorage]';
@@ -23,6 +23,32 @@ class ProfileStorage {
 
     this.isValid = false;
     debugLog('ProfileStorage initialized');
+
+    // Load data from storage during initialization
+    this.loadFromStorage();
+  }
+
+  // Load profile data from storage
+  async loadFromStorage() {
+    try {
+      debugLog('Loading profile from storage');
+      const storedProfile = await StorageManager.loadProfile();
+      
+      if (storedProfile) {
+        debugLog('Found stored profile:', storedProfile);
+        // Update profile data with stored values
+        this.updateProfile({
+          name: storedProfile.name,
+          headline: storedProfile.headline,
+          currentRole: storedProfile.currentRole,
+          company: storedProfile.company
+        });
+      } else {
+        debugLog('No stored profile found');
+      }
+    } catch (error) {
+      debugLog('Error loading from storage:', error);
+    }
   }
 
   // Update profile data

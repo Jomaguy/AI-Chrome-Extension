@@ -1,9 +1,9 @@
 // Debug mode flag
-const DEBUG = true;
+const CONTENT_DEBUG = true;
 
 // Update our logging utility with a distinct prefix
 function debugLog(...args) {
-  if (!DEBUG) return;
+  if (!CONTENT_DEBUG) return;
   
   const [message, ...rest] = args;
   
@@ -1231,7 +1231,7 @@ function handleError(context, error, field = null) {
   debugLog('Error occurred:', errorInfo);
 
   // Track error state if needed
-  if (DEBUG) {
+  if (CONTENT_DEBUG) {
     console.error('Full error details:', {
       ...errorInfo,
       stack: error.stack

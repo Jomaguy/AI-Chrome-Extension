@@ -11,6 +11,9 @@
     "https://generativelanguage.googleapis.com/*",
     "https://www.linkedin.com/*"
   ],
+  "background": {
+    "service_worker": "background.js"
+  },
   "content_security_policy": {
     "extension_pages": "script-src 'self'; object-src 'self';"
   },
@@ -19,7 +22,17 @@
       "matches": [
         "https://www.linkedin.com/*"
       ],
-      "js": ["profileStorage.js", "profileDetector.js", "content.js"]
+      "js": [
+        "errorRecovery.js",
+        "errorRecovery.test.js",
+        "storageLayerManager.js",
+        "storageLayerManager.test.js",
+        "storageManager.js",
+        "storageManager.test.js",
+        "profileStorage.js",
+        "profileDetector.js",
+        "content.js"
+      ]
     }
   ]
 } 
