@@ -23,7 +23,15 @@ if (window.RecipientDetector && window.RecipientDetector.isInitialized) {
     currentRecipient: {
       name: null,
       headline: null,
+      conversationType: null,
       lastDetected: null
+    },
+
+    // New conversation selectors
+    newConversationSelectors: {
+      container: '.artdeco-entity-lockup__content',
+      nameContainer: '.artdeco-entity-lockup__title .truncate',
+      headlineContainer: '.artdeco-entity-lockup__subtitle'
     },
 
     // Retry configuration
@@ -203,13 +211,71 @@ if (window.RecipientDetector && window.RecipientDetector.isInitialized) {
       return null;
     },
 
+    // Helper to extract new conversation recipient name
+    extractNewRecipientName(container) {
+      const nameElement = container.querySelector(this.newConversationSelectors.nameContainer);
+      return nameElement ? nameElement.textContent.trim() : null;
+    },
+
+    // Helper to extract new conversation recipient headline
+    extractNewRecipientHeadline(container) {
+      const headlineElement = container.querySelector(this.newConversationSelectors.headlineContainer);
+      return headlineElement ? headlineElement.textContent.trim() : null;
+    },
+
+    // New conversation recipient detection
+    async detectNewConversationRecipient(attempt = 0) {
+      debugLog(`🔍 Starting new conversation recipient detection (attempt ${attempt + 1}/${this.retryConfig.maxAttempts})`);
+      
+      try {
+        const container = document.querySelector(this.newConversationSelectors.container);
+        
+        if (!container && attempt < this.retryConfig.maxAttempts - 1) {
+          debugLog(`⏳ New conversation container not found, waiting ${this.retryConfig.delayMs}ms before retry...`);
+          await this.wait(this.retryConfig.delayMs);
+          return this.detectNewConversationRecipient(attempt + 1);
+        }
+
+        if (container) {
+          const name = this.extractNewRecipientName(container);
+          const headline = this.extractNewRecipientHeadline(container);
+          
+          debugLog('🔍 Found new conversation recipient elements:', { name, headline });
+
+          if (name && headline) {
+            debugLog('✅ New conversation recipient found:', { name, headline });
+            this.updateInternalState(name, headline, 'NEW');
+            this.emitRecipientUpdate(name, headline, 'NEW');
+            return this.currentRecipient;
+          }
+        }
+
+        debugLog('❌ No recipient found in new conversation');
+        return null;
+      } catch (error) {
+        debugLog('❌ Error detecting new conversation recipient:', error.message);
+        return null;
+      }
+    },
+
     // Main detection method with retry logic
     async detectRecipient(attempt = 0) {
-      // Add detection tracking
       const detectionId = Date.now();
       debugLog(`🔍 Starting recipient detection (attempt ${attempt + 1}/${this.retryConfig.maxAttempts})`);
       
       try {
+        // Check conversation type first
+        if (window.ConversationDetector) {
+          const conversationType = window.ConversationDetector.detectConversationType();
+          debugLog('🔍 Conversation type detected:', { type: conversationType });
+
+          // If it's a new conversation, use new detection method
+          if (conversationType === 'NEW') {
+            debugLog('✨ New conversation detected, using new conversation detection');
+            return this.detectNewConversationRecipient(attempt);
+          }
+        }
+
         const nameSelector = '.msg-entity-lockup__entity-title';
         const headlineSelector = '.msg-entity-lockup__entity-info';
         
@@ -239,11 +305,11 @@ if (window.RecipientDetector && window.RecipientDetector.isInitialized) {
           
           debugLog('✅ Recipient found:', { name, headline });
           
-          // Update internal state
-          this.updateInternalState(name, headline);
+          // Update internal state with ONGOING type
+          this.updateInternalState(name, headline, 'ONGOING');
           
           // Emit event for any listeners
-          this.emitRecipientUpdate(name, headline);
+          this.emitRecipientUpdate(name, headline, 'ONGOING');
           
           return this.currentRecipient;
         } else {
@@ -259,27 +325,28 @@ if (window.RecipientDetector && window.RecipientDetector.isInitialized) {
     },
 
     // Update internal state
-    updateInternalState(name, headline) {
-      debugLog('Updating internal state:', { name, headline });
+    updateInternalState(name, headline, conversationType = null) {
+      debugLog('Updating internal state:', { name, headline, conversationType });
       this.currentRecipient = {
         name,
         headline,
+        conversationType,
         lastDetected: new Date().toISOString()
       };
       
       // Also update RecipientStorage if available
       if (window.RecipientStorage) {
-        window.RecipientStorage.updateRecipient(name, headline);
+        window.RecipientStorage.updateRecipient(name, headline, conversationType);
       } else {
         debugLog('Warning: RecipientStorage not available');
       }
     },
 
     // Emit recipient update event
-    emitRecipientUpdate(name, headline) {
+    emitRecipientUpdate(name, headline, conversationType = null) {
       debugLog('Emitting recipient update event');
       const event = new CustomEvent('recipientDetected', {
-        detail: { name, headline }
+        detail: { name, headline, conversationType }
       });
       document.dispatchEvent(event);
       debugLog('Event emitted successfully');
@@ -291,6 +358,7 @@ if (window.RecipientDetector && window.RecipientDetector.isInitialized) {
       this.currentRecipient = {
         name: null,
         headline: null,
+        conversationType: null,
         lastDetected: null
       };
       

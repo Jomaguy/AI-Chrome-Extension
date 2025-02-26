@@ -17,6 +17,7 @@ const RecipientStorage = {
   currentRecipient: {
     name: null,
     headline: null,
+    conversationType: null,
     lastUpdated: null
   },
 
@@ -27,8 +28,8 @@ const RecipientStorage = {
     // Listen for recipient detected events
     document.addEventListener('recipientDetected', (event) => {
       debugLog('📥 Received recipientDetected event:', event.detail);
-      const { name, headline } = event.detail;
-      this.updateRecipient(name, headline);
+      const { name, headline, conversationType } = event.detail;
+      this.updateRecipient(name, headline, conversationType);
     });
 
     // Listen for recipient cleared events
@@ -42,14 +43,15 @@ const RecipientStorage = {
   },
 
   // Update recipient data
-  updateRecipient(name, headline) {
+  updateRecipient(name, headline, conversationType = null) {
     debugLog('📝 Updating recipient data');
     debugLog('Previous state:', { ...this.currentRecipient });
-    debugLog('New data:', { name, headline });
+    debugLog('New data:', { name, headline, conversationType });
     
     this.currentRecipient = {
       name,
       headline,
+      conversationType,
       lastUpdated: new Date().toISOString()
     };
     
@@ -72,6 +74,7 @@ const RecipientStorage = {
     this.currentRecipient = {
       name: null,
       headline: null,
+      conversationType: null,
       lastUpdated: null
     };
     

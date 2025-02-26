@@ -30,6 +30,7 @@
         "profileDetector.js",
         "recipientDetector.js",
         "recipientStorage.js",
+        "conversationDetector.js",
         "content.js"
       ]
     }
