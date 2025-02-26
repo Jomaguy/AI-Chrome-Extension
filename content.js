@@ -2255,18 +2255,6 @@ async function initializeRecipientDetection() {
   console.log('[Debug] Starting recipient detection initialization');
   debugLog('Initializing recipient detection');
   
-  // Only initialize on messaging pages
-  if (!window.location.href.includes('linkedin.com/messaging')) {
-    console.log('[Debug] Not on messaging page, skipping initialization');
-    return;
-  }
-
-  console.log('[Debug] On messaging page, proceeding with initialization');
-
-  // Initial recipient detection
-  const recipient = await RecipientDetector.detectRecipient();
-  console.log('[Debug] Initial detection result:', recipient);
-
   // Set up URL change monitoring for conversation changes
   let lastUrl = window.location.href;
   
@@ -2275,6 +2263,7 @@ async function initializeRecipientDetection() {
     if (window.location.href !== lastUrl) {
       console.log('[Debug] URL changed from', lastUrl, 'to', window.location.href);
       lastUrl = window.location.href;
+      
       if (window.location.href.includes('linkedin.com/messaging')) {
         console.log('[Debug] New URL is messaging page, updating recipient');
         debugLog('Conversation changed, updating recipient');
@@ -2296,4 +2285,11 @@ async function initializeRecipientDetection() {
   });
 
   console.log('[Debug] Observer set up completed');
+
+  // If we're already on a messaging page, do initial detection
+  if (window.location.href.includes('linkedin.com/messaging')) {
+    console.log('[Debug] Initially on messaging page, detecting recipient');
+    const recipient = await RecipientDetector.detectRecipient();
+    console.log('[Debug] Initial detection result:', recipient);
+  }
 } 
