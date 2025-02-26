@@ -29,6 +29,7 @@
         "profileStorage.js",
         "profileDetector.js",
         "recipientDetector.js",
+        "recipientStorage.js",
         "content.js"
       ]
     }

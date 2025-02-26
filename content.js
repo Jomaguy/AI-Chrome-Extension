@@ -1101,19 +1101,83 @@ const debouncedStateChange = debounce((state) => {
 if (document.readyState === 'loading') {
   const initObserver = async () => {
     if (window.RECIPIENT_DEBUG) {
-      console.log('[Recipient] DOM Content Loaded, initializing recipient detection...');
+      console.log('[Recipient] DOM Content Loaded, waiting for RecipientDetector...');
     }
-    await startObserver();
-    await initializeRecipientDetection();
+    // Wait for RecipientDetector to be available
+    let attempts = 0;
+    while (!window.RecipientDetector && attempts < 10) {
+      await new Promise(resolve => setTimeout(resolve, 100));
+      attempts++;
+    }
+    
+    if (window.RecipientDetector) {
+      console.log('[Recipient] RecipientDetector found, setting up listeners...');
+      
+      // Remove any existing listeners first
+      document.removeEventListener('recipientDetected', handleRecipientDetected);
+      document.removeEventListener('recipientCleared', handleRecipientCleared);
+      
+      // Define handlers
+      function handleRecipientDetected(event) {
+        const { name, headline } = event.detail;
+        console.log('[Recipient] Detected from event:', { 
+          name, 
+          headline,
+          timestamp: new Date().toISOString()
+        });
+        // Handle recipient detection (any content.js specific logic)
+      }
+      
+      function handleRecipientCleared() {
+        console.log('[Recipient] Cleared from event');
+        // Handle recipient clearing (any content.js specific logic)
+      }
+      
+      // Add new listeners
+      document.addEventListener('recipientDetected', handleRecipientDetected);
+      document.addEventListener('recipientCleared', handleRecipientCleared);
+      
+      console.log('[Recipient] Event listeners set up successfully');
+    } else {
+      console.log('[Recipient] Warning: RecipientDetector not available after waiting');
+    }
     document.removeEventListener('DOMContentLoaded', initObserver);
   };
   document.addEventListener('DOMContentLoaded', initObserver);
 } else {
   if (window.RECIPIENT_DEBUG) {
-    console.log('[Recipient] Page already loaded, initializing recipient detection...');
+    console.log('[Recipient] Page already loaded, setting up RecipientDetector listeners...');
   }
-  startObserver();
-  initializeRecipientDetection();
+  
+  if (window.RecipientDetector) {
+    // Remove any existing listeners first
+    document.removeEventListener('recipientDetected', handleRecipientDetected);
+    document.removeEventListener('recipientCleared', handleRecipientCleared);
+    
+    // Define handlers
+    function handleRecipientDetected(event) {
+      const { name, headline } = event.detail;
+      console.log('[Recipient] Detected from event:', { 
+        name, 
+        headline,
+        timestamp: new Date().toISOString()
+      });
+      // Handle recipient detection (any content.js specific logic)
+    }
+    
+    function handleRecipientCleared() {
+      console.log('[Recipient] Cleared from event');
+      // Handle recipient clearing (any content.js specific logic)
+    }
+    
+    // Add new listeners
+    document.addEventListener('recipientDetected', handleRecipientDetected);
+    document.addEventListener('recipientCleared', handleRecipientCleared);
+    
+    console.log('[Recipient] Event listeners set up successfully');
+  } else {
+    console.log('[Recipient] Warning: RecipientDetector not available');
+  }
 }
 
 // Add near other state tracking variables at the top
@@ -2249,47 +2313,3 @@ function updateLinkedInMessageBox(field, text) {
     return false;
   }
 }
-
-// Initialize recipient detection for messaging
-async function initializeRecipientDetection() {
-  console.log('[Debug] Starting recipient detection initialization');
-  debugLog('Initializing recipient detection');
-  
-  // Set up URL change monitoring for conversation changes
-  let lastUrl = window.location.href;
-  
-  // Create observer for URL changes
-  const observer = new MutationObserver(async () => {
-    if (window.location.href !== lastUrl) {
-      console.log('[Debug] URL changed from', lastUrl, 'to', window.location.href);
-      lastUrl = window.location.href;
-      
-      if (window.location.href.includes('linkedin.com/messaging')) {
-        console.log('[Debug] New URL is messaging page, updating recipient');
-        debugLog('Conversation changed, updating recipient');
-        // Add delay to ensure DOM has updated
-        await new Promise(resolve => setTimeout(resolve, 1000));
-        const recipient = await RecipientDetector.detectRecipient();
-        console.log('[Debug] Updated recipient:', recipient);
-      } else {
-        console.log('[Debug] New URL is not messaging page, clearing recipient');
-        RecipientDetector.clearRecipient();
-      }
-    }
-  });
-
-  // Start observing
-  observer.observe(document.body, {
-    childList: true,
-    subtree: true
-  });
-
-  console.log('[Debug] Observer set up completed');
-
-  // If we're already on a messaging page, do initial detection
-  if (window.location.href.includes('linkedin.com/messaging')) {
-    console.log('[Debug] Initially on messaging page, detecting recipient');
-    const recipient = await RecipientDetector.detectRecipient();
-    console.log('[Debug] Initial detection result:', recipient);
-  }
-} 
