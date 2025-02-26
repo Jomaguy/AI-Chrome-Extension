@@ -1,10 +1,12 @@
 // Debug mode flag
 window.RECIPIENT_STORAGE_DEBUG = true;
 
-// Debug logging utility
+// Debug logging utility with timestamps
 function debugLog(...args) {
   if (!window.RECIPIENT_STORAGE_DEBUG) return;
-  console.log('[Debug][RecipientStorage]', ...args);
+  const timestamp = new Date().toISOString();
+  const prefix = `[RecipientStorage ${timestamp}]`;
+  console.log(prefix, ...args);
 }
 
 // Log initialization
@@ -20,71 +22,77 @@ const RecipientStorage = {
 
   // Initialize event listeners
   initialize() {
-    debugLog('Setting up event listeners');
+    debugLog('🚀 Initializing RecipientStorage...');
     
     // Listen for recipient detected events
     document.addEventListener('recipientDetected', (event) => {
-      debugLog('Received recipientDetected event');
+      debugLog('📥 Received recipientDetected event:', event.detail);
       const { name, headline } = event.detail;
       this.updateRecipient(name, headline);
     });
 
     // Listen for recipient cleared events
     document.addEventListener('recipientCleared', () => {
-      debugLog('Received recipientCleared event');
+      debugLog('🗑️ Received recipientCleared event');
       this.clearRecipient();
     });
     
-    debugLog('Event listeners set up successfully');
+    debugLog('✅ Event listeners set up successfully');
+    debugLog('Current state:', this.currentRecipient);
   },
 
   // Update recipient data
   updateRecipient(name, headline) {
-    debugLog('📝 Updating recipient:', { 
-      previous: { ...this.currentRecipient },
-      new: { name, headline }
-    });
+    debugLog('📝 Updating recipient data');
+    debugLog('Previous state:', { ...this.currentRecipient });
+    debugLog('New data:', { name, headline });
+    
     this.currentRecipient = {
       name,
       headline,
       lastUpdated: new Date().toISOString()
     };
+    
     debugLog('✅ Recipient updated successfully');
+    debugLog('Current state:', this.currentRecipient);
   },
 
   // Get current recipient
   getRecipient() {
-    debugLog('📖 Getting current recipient:', this.currentRecipient);
+    debugLog('📖 Getting current recipient');
+    debugLog('Current state:', this.currentRecipient);
     return this.currentRecipient;
   },
 
   // Clear recipient data
   clearRecipient() {
     debugLog('🗑️ Clearing recipient data');
-    const previousState = { ...this.currentRecipient };
+    debugLog('Previous state:', { ...this.currentRecipient });
+    
     this.currentRecipient = {
       name: null,
       headline: null,
       lastUpdated: null
     };
-    debugLog('✨ Recipient data cleared. Previous state:', previousState);
+    
+    debugLog('✅ Recipient data cleared');
+    debugLog('Current state:', this.currentRecipient);
   },
 
-  // Test method to verify storage is working
+  // Verify storage is working
   verifyStorage() {
-    debugLog('🔍 Storage verification:', {
-      hasData: this.currentRecipient.name !== null,
-      currentState: this.currentRecipient,
-      timestamp: new Date().toISOString()
-    });
+    debugLog('🔍 Running storage verification');
+    debugLog('Has recipient data:', this.currentRecipient.name !== null);
+    debugLog('Current state:', this.currentRecipient);
+    debugLog('Last updated:', this.currentRecipient.lastUpdated);
     return this.currentRecipient;
   }
 };
 
 // Export for use in other files
 window.RecipientStorage = RecipientStorage;
-debugLog('✅ RecipientStorage initialized and exported to window');
+debugLog('✅ RecipientStorage exported to window');
 
-// Initialize event listeners
+// Initialize immediately
 RecipientStorage.initialize();
-debugLog('✅ RecipientStorage event listeners initialized'); 
+debugLog('✅ RecipientStorage initialization complete'); 

@@ -1,5 +1,8 @@
 // Debug mode flag
-const CONTENT_DEBUG = false;
+const CONTENT_DEBUG = true;
+
+// Debug prefix for logging
+const DEBUG_PREFIX = '[Content]';
 
 // Update our logging utility with a distinct prefix
 function debugLog(...args) {
@@ -7,43 +10,21 @@ function debugLog(...args) {
   
   const [message, ...rest] = args;
   
-  // Skip more noisy logs
-  if (
-    message.includes('Raw input event received') ||
-    message.includes('Found field:') ||
-    message.includes('Field focused and input') ||
-    message.includes('Field blurred and input') ||
-    message.includes('Monitoring new field type') ||
-    message.includes('Listeners attached to field') ||
-    message.includes('Input event:') ||
-    message.includes('Memory check') ||
-    message.includes('[Context] Text context captured') ||
-    message.includes('Selection updated') ||
-    message.includes('[Trigger] Context validation') ||
-    message.includes('[Prompt] Formatting prompt') ||
-    message.includes('[API] Generating content') ||
-    message.includes('[API] Request body') ||
-    message.includes('[API] Raw response') ||
-    message.includes('[API] Processing response') ||
-    message.includes('[API] Raw suggestion') ||
-    message.includes('[API] Processed result') ||
-    message.includes('[API] Invalid response structure') ||
-    message.includes('[Init]') ||
-    message.includes('[Observer]') ||
-    message.includes('[Memory]') ||
-    message.includes('[Cleanup]') ||
-    message.includes('[Field]') ||
-    message.includes('[Error]') ||
-    message.includes('[AI]') ||
-    message.includes('[Selection]') ||
-    message.includes('[State]') ||
-    message.includes('[Lifecycle]')
-  ) return;
+  // Only show recipient and storage related logs
+  const isRelevantLog = 
+    message.includes('[Recipient]') ||
+    message.includes('recipient') ||
+    message.includes('Recipient') ||
+    message.includes('[Storage]') ||
+    message.includes('storage') ||
+    message.includes('Storage');
+    
+  if (!isRelevantLog) return;
   
   // Only log the message if it's meaningful
   if (rest.length === 0 && message.trim().length < 3) return;
   
-  console.log(prefix, message, ...(rest.length ? rest : []));
+  console.log(DEBUG_PREFIX, message, ...(rest.length ? rest : []));
 }
 
 // Remove the generic console.log
@@ -273,70 +254,84 @@ function formatPrompt(field) {
     isInMessageContainer,
     isLinkedInMessage,
     hasProfileStorage: !!window.ProfileStorage,
+    hasRecipientStorage: !!window.RecipientStorage,
     fieldType: field.tagName,
     fieldClasses: field.className,
-    parentClasses: field.parentElement?.className,
-    containerFound: field.closest('[data-messaging-container]') ? 'data-messaging' :
-                   field.closest('.msg-form__contenteditable') ? 'msg-form' :
-                   field.closest('[data-control-name="message_body"]') ? 'message-body' :
-                   field.closest('[role="textbox"]') ? 'textbox' : 'none'
+    parentClasses: field.parentElement?.className
   });
   
-  // Get profile data if available
+  // Get profile and recipient data if available
   let profileContext = '';
-  if (isLinkedInMessage && window.ProfileStorage) {
-    const profileData = window.ProfileStorage.getProfile();
-    
-    debugLog('[Prompt] Profile data retrieved:', {
-      hasData: !!profileData,
-      isValid: profileData?.isValid,
-      name: profileData?.name,
-      role: profileData?.currentRole,
-      company: profileData?.company,
-      headline: profileData?.headline
-    });
-
-    if (profileData?.isValid) {
-      profileContext = `CONTEXT: You are helping craft a message FROM ${profileData.name} (a ${profileData.currentRole} at ${profileData.company}). 
-SENDER'S BACKGROUND: ${profileData.headline}
-
-TASK: Help continue writing this message in ${profileData.name}'s professional voice:
-1. Write from the perspective of a ${profileData.currentRole} at ${profileData.company}
-2. Match the professional tone of someone with background as ${profileData.headline}
-3. Ensure the message reflects the sender's expertise and position
-
-DO NOT:
-- Do not add [${profileData.name}] or any name in brackets
-- Do not add "Sincerely" or signature blocks
-- Do not start a new message, only continue the existing one
-`;
-    } else {
-      debugLog('[Prompt] Invalid profile data:', {
-        profileData
+  let recipientContext = '';
+  
+  if (isLinkedInMessage) {
+    // Get sender's profile data
+    if (window.ProfileStorage) {
+      const profileData = window.ProfileStorage.getProfile();
+      
+      debugLog('[Prompt] Profile data retrieved:', {
+        hasData: !!profileData,
+        isValid: profileData?.isValid,
+        name: profileData?.name,
+        role: profileData?.currentRole,
+        company: profileData?.company,
+        headline: profileData?.headline
       });
+
+      if (profileData?.isValid) {
+        profileContext = `SENDER CONTEXT:
+- Name: ${profileData.name}
+- Role: ${profileData.currentRole} at ${profileData.company}
+- Background: ${profileData.headline}`;
+      }
+    }
+    
+    // Get recipient data
+    if (window.RecipientStorage) {
+      const recipientData = window.RecipientStorage.getRecipient();
+      
+      debugLog('[Prompt] Recipient data retrieved:', {
+        hasData: !!recipientData,
+        name: recipientData?.name,
+        headline: recipientData?.headline,
+        lastUpdated: recipientData?.lastUpdated
+      });
+
+      if (recipientData?.name) {
+        recipientContext = `\nRECIPIENT CONTEXT:
+- Name: ${recipientData.name}
+- Background: ${recipientData.headline || 'Not available'}
+- Last Verified: ${recipientData.lastUpdated ? new Date(recipientData.lastUpdated).toLocaleString() : 'Unknown'}`;
+      }
     }
   }
 
+  // Combine all context
+  const fullContext = `${profileContext}${recipientContext ? '\n' + recipientContext : ''}`;
+  
   // Log final prompt construction
   debugLog('[Prompt] Final prompt:', {
     hasProfileContext: !!profileContext,
-    profileContextLength: profileContext.length,
+    hasRecipientContext: !!recipientContext,
     beforeCursor: context.beforeCursor,
     afterCursor: context.afterCursor
   });
 
-  // Combine profile context with text context
+  // Build complete prompt with all context
   return {
-    text: `${profileContext}
+    text: `${fullContext ? fullContext + '\n\n' : ''}TASK: Help continue writing this LinkedIn message${recipientContext ? ' to ' + window.RecipientStorage.getRecipient().name : ''}.
+
+WRITING GUIDELINES:
+1. Match the professional tone appropriate for LinkedIn
+2. Consider the recipient's background when available
+3. Maintain natural conversation flow
+4. Be concise and relevant
+5. Avoid generic phrases or clichés
+
 MESSAGE CONTEXT:
 Before cursor: "${context.beforeCursor}"
 After cursor: "${context.afterCursor}"
 Current word: "${context.wordContext?.currentWord || ''}"
-
-Please provide a natural continuation that:
-1. Matches the writing style
-2. Continues from the cursor position
-3. Is contextually relevant and professional
 
 Provide only the continuation text without any explanation.`
   };
@@ -1100,9 +1095,13 @@ const debouncedStateChange = debounce((state) => {
 // Initialize
 if (document.readyState === 'loading') {
   const initObserver = async () => {
+    debugLog('Starting observer initialization');
+    startObserver();  // Start observer immediately
+    
     if (window.RECIPIENT_DEBUG) {
       console.log('[Recipient] DOM Content Loaded, waiting for RecipientDetector...');
     }
+    
     // Wait for RecipientDetector to be available
     let attempts = 0;
     while (!window.RecipientDetector && attempts < 10) {
@@ -1145,6 +1144,9 @@ if (document.readyState === 'loading') {
   };
   document.addEventListener('DOMContentLoaded', initObserver);
 } else {
+  debugLog('Page already loaded, starting observer');
+  startObserver();  // Start observer immediately
+  
   if (window.RECIPIENT_DEBUG) {
     console.log('[Recipient] Page already loaded, setting up RecipientDetector listeners...');
   }
