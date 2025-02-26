@@ -16,7 +16,7 @@ function debugLog(...args) {
     message.includes('Monitoring new field type') ||
     message.includes('Listeners attached to field') ||
     message.includes('Input event:') ||
-    (message.includes('Memory check') && !message.includes('error')) ||
+    message.includes('Memory check') ||
     message.includes('[Context] Text context captured') ||
     message.includes('Selection updated') ||
     message.includes('[Trigger] Context validation') ||
@@ -27,22 +27,18 @@ function debugLog(...args) {
     message.includes('[API] Processing response') ||
     message.includes('[API] Raw suggestion') ||
     message.includes('[API] Processed result') ||
-    message.includes('[API] Invalid response structure')
+    message.includes('[API] Invalid response structure') ||
+    message.includes('[Init]') ||
+    message.includes('[Observer]') ||
+    message.includes('[Memory]') ||
+    message.includes('[Cleanup]') ||
+    message.includes('[Field]') ||
+    message.includes('[Error]') ||
+    message.includes('[AI]') ||
+    message.includes('[Selection]') ||
+    message.includes('[State]') ||
+    message.includes('[Lifecycle]')
   ) return;
-  
-  // Enhanced categorization with lifecycle events
-  const prefix = 
-    message.includes('Memory check') ? '[Memory]' :
-    message.includes('cleanup') ? '[Cleanup]' :
-    message.includes('Observer') || message.includes('Initial field scan') ? '[Observer]' :
-    message.includes('Field') ? '[Field]' :
-    message.includes('Error') ? '[Error]' :
-    message.includes('AI') ? '[AI]' :
-    message.includes('Selection') ? '[Selection]' :
-    message.includes('initialized') || message.includes('Starting') ? '[Init]' :
-    message.includes('State change') || message.includes('unloading') || message.includes('hiding') ? '[State]' :
-    message.includes('Direct field removal') || message.includes('Nested field removal') ? '[Cleanup]' :
-    '[Lifecycle]';
   
   // Only log the message if it's meaningful
   if (rest.length === 0 && message.trim().length < 3) return;
@@ -1103,13 +1099,21 @@ const debouncedStateChange = debounce((state) => {
 
 // Initialize
 if (document.readyState === 'loading') {
-  const initObserver = () => {
-    startObserver();
+  const initObserver = async () => {
+    if (window.RECIPIENT_DEBUG) {
+      console.log('[Recipient] DOM Content Loaded, initializing recipient detection...');
+    }
+    await startObserver();
+    await initializeRecipientDetection();
     document.removeEventListener('DOMContentLoaded', initObserver);
   };
   document.addEventListener('DOMContentLoaded', initObserver);
 } else {
+  if (window.RECIPIENT_DEBUG) {
+    console.log('[Recipient] Page already loaded, initializing recipient detection...');
+  }
   startObserver();
+  initializeRecipientDetection();
 }
 
 // Add near other state tracking variables at the top
@@ -2244,4 +2248,52 @@ function updateLinkedInMessageBox(field, text) {
     handleError('updating LinkedIn message box', error, field);
     return false;
   }
+}
+
+// Initialize recipient detection for messaging
+async function initializeRecipientDetection() {
+  console.log('[Debug] Starting recipient detection initialization');
+  debugLog('Initializing recipient detection');
+  
+  // Only initialize on messaging pages
+  if (!window.location.href.includes('linkedin.com/messaging')) {
+    console.log('[Debug] Not on messaging page, skipping initialization');
+    return;
+  }
+
+  console.log('[Debug] On messaging page, proceeding with initialization');
+
+  // Initial recipient detection
+  const recipient = await RecipientDetector.detectRecipient();
+  console.log('[Debug] Initial detection result:', recipient);
+
+  // Set up URL change monitoring for conversation changes
+  let lastUrl = window.location.href;
+  
+  // Create observer for URL changes
+  const observer = new MutationObserver(async () => {
+    if (window.location.href !== lastUrl) {
+      console.log('[Debug] URL changed from', lastUrl, 'to', window.location.href);
+      lastUrl = window.location.href;
+      if (window.location.href.includes('linkedin.com/messaging')) {
+        console.log('[Debug] New URL is messaging page, updating recipient');
+        debugLog('Conversation changed, updating recipient');
+        // Add delay to ensure DOM has updated
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        const recipient = await RecipientDetector.detectRecipient();
+        console.log('[Debug] Updated recipient:', recipient);
+      } else {
+        console.log('[Debug] New URL is not messaging page, clearing recipient');
+        RecipientDetector.clearRecipient();
+      }
+    }
+  });
+
+  // Start observing
+  observer.observe(document.body, {
+    childList: true,
+    subtree: true
+  });
+
+  console.log('[Debug] Observer set up completed');
 } 

@@ -28,6 +28,7 @@
         "storageManager.js",
         "profileStorage.js",
         "profileDetector.js",
+        "recipientDetector.js",
         "content.js"
       ]
     }
