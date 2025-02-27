@@ -1,8 +1,13 @@
+// ==== DIRECT LOGS - DO NOT FILTER THESE ====
+// Direct initialization log removed
+
 // Debug mode flag
-const CONTENT_DEBUG = true;
+const CONTENT_DEBUG = false;
 
 // Debug prefix for logging
 const DEBUG_PREFIX = '[Content]';
+
+// Direct initialization check log removed
 
 // Update our logging utility with a distinct prefix
 function debugLog(...args) {
@@ -10,25 +15,35 @@ function debugLog(...args) {
   
   const [message, ...rest] = args;
   
-  // Only show recipient and storage related logs
-  const isRelevantLog = 
-    message.includes('[Recipient]') ||
-    message.includes('recipient') ||
-    message.includes('Recipient') ||
-    message.includes('[Storage]') ||
-    message.includes('storage') ||
-    message.includes('Storage');
+  // SIMPLIFIED: Less restrictive filtering to ensure prompt logs are shown
+  // Allow any prompt-related logs or make certain types always visible
+  const isPromptRelated = 
+    message.includes('[Prompt]') || 
+    message.includes('prompt') || 
+    message.includes('Prompt');
+    
+  const isAIRelated = 
+    message.includes('[API]') || 
+    message.includes('[Ghost]') || 
+    message.includes('[Accept]');
+    
+  // Show all prompt and AI related logs
+  const isRelevantLog = isPromptRelated || isAIRelated;
     
   if (!isRelevantLog) return;
   
   // Only log the message if it's meaningful
   if (rest.length === 0 && message.trim().length < 3) return;
   
-  console.log(DEBUG_PREFIX, message, ...(rest.length ? rest : []));
+  // Make prompt logs stand out more with emoji prefix
+  if (isPromptRelated) {
+    console.log('🔷 PROMPT LOG:', message, ...(rest.length ? rest : []));
+  } else {
+    console.log(DEBUG_PREFIX, message, ...(rest.length ? rest : []));
+  }
 }
 
-// Remove the generic console.log
-// console.log('Content script loaded!'); // Remove this line
+// Test log removed
 
 // Update initial load message
 debugLog('Extension initialized');
@@ -255,6 +270,7 @@ function formatPrompt(field) {
     isLinkedInMessage,
     hasProfileStorage: !!window.ProfileStorage,
     hasRecipientStorage: !!window.RecipientStorage,
+    hasConversationStorage: !!window.ConversationStorage,
     fieldType: field.tagName,
     fieldClasses: field.className,
     parentClasses: field.parentElement?.className
@@ -263,6 +279,7 @@ function formatPrompt(field) {
   // Get profile and recipient data if available
   let profileContext = '';
   let recipientContext = '';
+  let conversationContext = '';
   
   if (isLinkedInMessage) {
     // Get sender's profile data
@@ -304,22 +321,79 @@ function formatPrompt(field) {
 - Last Verified: ${recipientData.lastUpdated ? new Date(recipientData.lastUpdated).toLocaleString() : 'Unknown'}`;
       }
     }
+    
+    // Get conversation context if available
+    if (window.ConversationStorage) {
+      const conversationData = window.ConversationStorage.getFormattedConversationForAI();
+      
+      // Direct console log removed
+      
+      // Enhanced logging for conversation detection
+      debugLog('[Prompt] Conversation detection details:', {
+        hasConversationStorage: !!window.ConversationStorage,
+        hasData: !!conversationData,
+        conversationType: conversationData?.conversationType,
+        isNewConversation: conversationData?.isNewConversation,
+        isNewConversationStrict: conversationData?.isNewConversation === true,
+        messageCount: conversationData?.messages?.length || 0,
+        rawIsNewValue: String(conversationData?.isNewConversation),
+        typeofIsNew: typeof conversationData?.isNewConversation
+      });
+      
+      debugLog('[Prompt] Conversation data retrieved:', {
+        hasData: !!conversationData,
+        type: conversationData?.conversationType,
+        isNew: conversationData?.isNewConversation,
+        messageCount: conversationData?.messages?.length || 0
+      });
+      
+      if (conversationData) {
+        // Add conversation type
+        conversationContext = `\nCONVERSATION CONTEXT:
+- Type: ${conversationData.isNewConversation ? 'NEW conversation (first message)' : 'ONGOING conversation'}`;
+        
+        // Add message history for ongoing conversations
+        if (!conversationData.isNewConversation && conversationData.messages && conversationData.messages.length > 0) {
+          conversationContext += `\n- Message History:`;
+          
+          // Add clarification about message attribution
+          conversationContext += `\n  Note: In this conversation, messages from "You" are from the LinkedIn user you are assisting.`;
+          conversationContext += `\n  Messages from other names are from people the user is messaging with.`;
+          
+          // Format the messages in a more readable way
+          conversationData.messages.forEach(msg => {
+            const sender = msg.name;
+            const content = msg.content.replace(/\n/g, ' ');
+            conversationContext += `\n  ${sender}: "${content}"`;
+          });
+        }
+      }
+    }
   }
 
   // Combine all context
-  const fullContext = `${profileContext}${recipientContext ? '\n' + recipientContext : ''}`;
+  const fullContext = `${profileContext}${recipientContext ? '\n' + recipientContext : ''}${conversationContext ? '\n' + conversationContext : ''}`;
   
   // Log final prompt construction
   debugLog('[Prompt] Final prompt:', {
     hasProfileContext: !!profileContext,
     hasRecipientContext: !!recipientContext,
+    hasConversationContext: !!conversationContext,
     beforeCursor: context.beforeCursor,
     afterCursor: context.afterCursor
   });
 
   // Build complete prompt with all context
+  
+  // Direct log removed
+  const conversationData = window.ConversationStorage?.getFormattedConversationForAI();
+  const isNewConversation = conversationData?.isNewConversation === true;
+  const messageCount = conversationData?.messages?.length || 0;
+  
+  // Prompt conversation check log removed
+  
   return {
-    text: `${fullContext ? fullContext + '\n\n' : ''}TASK: Help continue writing this LinkedIn message${recipientContext ? ' to ' + window.RecipientStorage.getRecipient().name : ''}.
+    text: `${fullContext ? fullContext + '\n\n' : ''}TASK: Help ${isNewConversation ? 'start' : 'continue'} writing this LinkedIn message${recipientContext ? ' to ' + window.RecipientStorage.getRecipient().name : ''}.
 
 WRITING GUIDELINES:
 1. Match the professional tone appropriate for LinkedIn
@@ -327,6 +401,10 @@ WRITING GUIDELINES:
 3. Maintain natural conversation flow
 4. Be concise and relevant
 5. Avoid generic phrases or clichés
+${isNewConversation ? 
+'6. For this NEW conversation, start with an appropriate greeting and introduction\n7. Clearly state your purpose for reaching out to establish context' : 
+(conversationData === null) ? '' :
+'6. For this ONGOING conversation, maintain continuity with previous messages\n7. Reference relevant points from earlier in the conversation when appropriate'}
 
 MESSAGE CONTEXT:
 Before cursor: "${context.beforeCursor}"
@@ -677,6 +755,8 @@ function attachFieldListeners(field) {
 
   const handleAIShortcuts = (e) => {
     try {
+      // KEY_COMBINATION logs removed
+      
       const contextValidation = validateContext(field);
       if (!contextValidation?.isValid) {
         showError(contextValidation.validationErrors[0]);
@@ -686,6 +766,31 @@ function attachFieldListeners(field) {
       // Command/Ctrl + Shift + S for AI suggestions
       if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key === 's') {
         e.preventDefault();
+        
+        // Direct console logs removed
+        
+        // Get conversation data without direct logging
+        let conversationData = null;
+        try {
+          conversationData = window.ConversationStorage?.getFormattedConversationForAI();
+        } catch (error) {
+          console.error('Error getting conversation data:', error);
+        }
+        
+        // Direct log removed
+        
+        debugLog('[Prompt] AI suggestion triggered:', {
+          timestamp: new Date().toISOString(),
+          fieldType: field.tagName,
+          fieldId: field.id || 'no-id',
+          isContentEditable: field.getAttribute('contenteditable') === 'true',
+          conversationState: window.ConversationStorage ? {
+            available: true,
+            hasFormattedData: !!window.ConversationStorage.getFormattedConversationForAI(),
+            isNewConversation: window.ConversationStorage.getFormattedConversationForAI()?.isNewConversation,
+            messageCount: window.ConversationStorage.getFormattedConversationForAI()?.messages?.length || 0
+          } : { available: false }
+        });
         
         const loadingIndicator = createLoadingIndicator(field);
         captureTextContext(field);
@@ -975,6 +1080,8 @@ function disconnectObserver() {
 }
 
 function startObserver() {
+  // Observer start log removed
+  
   if (isObserverActive) {
     debugLog('Observer already active, skipping start');
     return;
@@ -1010,6 +1117,8 @@ function startObserver() {
   observer.observe(document.body, observerConfig);
   isObserverActive = true;
   debugLog('Observer successfully started');
+  
+  // Observer active log removed
 }
 
 function handleVisibilityChange() {
@@ -1099,7 +1208,7 @@ if (document.readyState === 'loading') {
     startObserver();  // Start observer immediately
     
     if (window.RECIPIENT_DEBUG) {
-      console.log('[Recipient] DOM Content Loaded, waiting for RecipientDetector...');
+      // Recipient debug log removed
     }
     
     // Wait for RecipientDetector to be available
@@ -1110,7 +1219,7 @@ if (document.readyState === 'loading') {
     }
     
     if (window.RecipientDetector) {
-      console.log('[Recipient] RecipientDetector found, setting up listeners...');
+      // RecipientDetector found log removed
       
       // Remove any existing listeners first
       document.removeEventListener('recipientDetected', handleRecipientDetected);
@@ -1119,16 +1228,12 @@ if (document.readyState === 'loading') {
       // Define handlers
       function handleRecipientDetected(event) {
         const { name, headline } = event.detail;
-        console.log('[Recipient] Detected from event:', { 
-          name, 
-          headline,
-          timestamp: new Date().toISOString()
-        });
+        // Recipient detected log removed
         // Handle recipient detection (any content.js specific logic)
       }
       
       function handleRecipientCleared() {
-        console.log('[Recipient] Cleared from event');
+        // Recipient cleared log removed
         // Handle recipient clearing (any content.js specific logic)
       }
       
@@ -1136,9 +1241,9 @@ if (document.readyState === 'loading') {
       document.addEventListener('recipientDetected', handleRecipientDetected);
       document.addEventListener('recipientCleared', handleRecipientCleared);
       
-      console.log('[Recipient] Event listeners set up successfully');
+      // Event listeners set up log removed
     } else {
-      console.log('[Recipient] Warning: RecipientDetector not available after waiting');
+      // RecipientDetector not available log removed
     }
     document.removeEventListener('DOMContentLoaded', initObserver);
   };
@@ -1148,7 +1253,7 @@ if (document.readyState === 'loading') {
   startObserver();  // Start observer immediately
   
   if (window.RECIPIENT_DEBUG) {
-    console.log('[Recipient] Page already loaded, setting up RecipientDetector listeners...');
+    // Page already loaded log removed
   }
   
   if (window.RecipientDetector) {
@@ -1159,16 +1264,12 @@ if (document.readyState === 'loading') {
     // Define handlers
     function handleRecipientDetected(event) {
       const { name, headline } = event.detail;
-      console.log('[Recipient] Detected from event:', { 
-        name, 
-        headline,
-        timestamp: new Date().toISOString()
-      });
+      // Recipient detected log removed
       // Handle recipient detection (any content.js specific logic)
     }
     
     function handleRecipientCleared() {
-      console.log('[Recipient] Cleared from event');
+      // Recipient cleared log removed
       // Handle recipient clearing (any content.js specific logic)
     }
     
@@ -1176,9 +1277,9 @@ if (document.readyState === 'loading') {
     document.addEventListener('recipientDetected', handleRecipientDetected);
     document.addEventListener('recipientCleared', handleRecipientCleared);
     
-    console.log('[Recipient] Event listeners set up successfully');
+    // Event listeners set up log removed
   } else {
-    console.log('[Recipient] Warning: RecipientDetector not available');
+    // RecipientDetector not available log removed
   }
 }
 
@@ -2315,3 +2416,24 @@ function updateLinkedInMessageBox(field, text) {
     return false;
   }
 }
+
+// Add this at the end of the file to ensure it runs
+
+// Try to force a log after a delay - removed direct logs
+setTimeout(() => {
+  // Extension object checks removed
+}, 2000);
+
+// Double-check our logger is working
+debugLog('[Prompt] Final verification log at end of script');
+
+// Near the top, after our initial console logs
+
+// Add direct event listeners
+document.addEventListener('DOMContentLoaded', () => {
+  // DOM content loaded event log removed
+});
+
+window.addEventListener('load', () => {
+  // Window load event logs removed
+});

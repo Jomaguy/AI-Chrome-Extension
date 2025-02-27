@@ -1,16 +1,20 @@
 // Debug mode flag for conversation detection
-const CONV_DEBUG = true;
+const CONV_DEBUG = false;
 
 // Debug prefix specific to conversation detection
 const CONV_DEBUG_PREFIX = '[ConversationDetector]';
 
-// Filter console.log to only show conversation-related logs
+// Modified logging approach that doesn't block other logs
+// Only filter conversation logs when debug is off, allow all other logs
 console.log = (function(originalLog) {
   return function(...args) {
-    if (typeof args[0] === 'string' && 
-        (args[0].startsWith('[ConversationDetector]') || 
-         args[0].startsWith('[ConversationStorage]')) &&
-        !args[0].startsWith('[Recipient')) {
+    // Always allow logs that are not conversation related
+    const isConversationLog = typeof args[0] === 'string' && 
+      (args[0].startsWith('[ConversationDetector]') || 
+       args[0].startsWith('[ConversationStorage]'));
+      
+    // If it's not a conversation log OR debug is on, show the log
+    if (!isConversationLog || CONV_DEBUG) {
       originalLog.apply(console, args);
     }
   };
@@ -65,6 +69,8 @@ const ConversationDetector = {
     lastMessageSender: null,  // Track the last message sender for consecutive messages
     userFullName: null,   // Store the user's full name for message ownership comparison
     lastMessageOwnership: null, // Track the last message ownership for consecutive messages
+    lastEmittedType: null, // Track the last emitted conversation type
+    lastEmittedURL: null, // Track the last emitted URL for conversation type
   },
 
   // Initialize the detector
@@ -81,6 +87,8 @@ const ConversationDetector = {
       this.state.isInitialized = true;
       this.state.lastDetected = new Date().toISOString();
       this.state.currentURL = window.location.href;
+      this.state.lastEmittedType = null;
+      this.state.lastEmittedURL = null;
       
       // Set up URL monitoring
       this.setupURLMonitoring();
@@ -121,6 +129,14 @@ const ConversationDetector = {
     // Only process if we're entering or leaving a messaging page
     if (newURL.includes('/messaging/')) {
       convDebugLog('🔍 Navigation to messaging detected');
+      
+      // Reset the lastEmittedType when URL changes to ensure fresh detection
+      if (oldURL !== newURL) {
+        this.state.lastEmittedType = null;
+        this.state.lastEmittedURL = null;
+        convDebugLog('🔄 Reset conversation emission tracking due to URL change');
+      }
+      
       this.detectConversationType();
     }
   },
@@ -322,8 +338,23 @@ const ConversationDetector = {
       // Find conversation elements
       const { ongoingElement, newElement } = this.findConversationElements();
 
-      // Prioritize ongoing conversation detection
-      if (ongoingElement) {
+      // Get the current URL for better context
+      const currentURL = window.location.href;
+      
+      // Check if this is explicitly a new conversation based on URL
+      const isExplicitlyNew = currentURL.includes('/messaging/thread/new/');
+      
+      // Check if there are any messages in the conversation
+      const messageElements = document.querySelectorAll(SELECTORS.MESSAGE_ITEM);
+      const hasMessages = messageElements && messageElements.length > 0;
+      
+      // Logic to determine conversation type
+      if (isExplicitlyNew && !hasMessages) {
+        // If URL contains 'new' and there are no messages, it's definitely NEW
+        this.state.type = 'NEW';
+        convDebugLog('✅ NEW conversation detected');
+      } else if (ongoingElement && hasMessages) {
+        // If there's an ongoing element and messages, it's definitely ONGOING
         this.state.type = 'ONGOING';
         convDebugLog('✅ ONGOING conversation detected', {
           url: window.location.href,
@@ -332,11 +363,28 @@ const ConversationDetector = {
         
         // Get messages directly
         this.getRecentMessages();
-      } else if (newElement) {
+      } else if (newElement && !ongoingElement) {
+        // If there's only a new element and no ongoing element, it's NEW
         this.state.type = 'NEW';
         convDebugLog('✅ NEW conversation detected');
-      } else {
+      } else if (ongoingElement && !hasMessages) {
+        // If there's an ongoing element but no messages, check URL for clues
+        if (isExplicitlyNew) {
+          this.state.type = 'NEW';
+          convDebugLog('✅ NEW conversation detected (based on URL)');
+        } else {
+          this.state.type = 'ONGOING';
+          convDebugLog('✅ ONGOING conversation detected (empty conversation)', {
+            url: window.location.href,
+            timestamp: new Date().toISOString()
+          });
+        }
+      } else if (!ongoingElement && !newElement) {
         convDebugLog('❌ No conversation elements found');
+      } else {
+        // Default case - if we can't determine, assume NEW for better user experience
+        this.state.type = 'NEW';
+        convDebugLog('✅ NEW conversation detected (default case)');
       }
 
       // Update last detection time
@@ -349,6 +397,39 @@ const ConversationDetector = {
           timestamp: this.state.lastDetected,
           url: window.location.href
         });
+        
+        // IMPORTANT: Emit event for NEW conversations even when there are no messages
+        // This ensures ConversationStorage is updated with the correct type
+        if (this.state.type === 'NEW') {
+          // Only emit if we haven't already emitted for this type or if the URL has changed
+          const shouldEmit = this.state.lastEmittedType !== 'NEW' || 
+                            (this.state.lastEmittedURL !== window.location.href);
+          
+          if (shouldEmit) {
+            // Create empty conversation parts for a new conversation
+            const emptyConversationParts = [];
+            
+            // Emit the event with the NEW type
+            const event = new CustomEvent('conversationUpdated', {
+              detail: {
+                parts: emptyConversationParts,
+                type: 'NEW',
+                timestamp: new Date().toISOString()
+              }
+            });
+            document.dispatchEvent(event);
+            
+            // Update tracking state
+            this.state.lastEmittedType = 'NEW';
+            this.state.lastEmittedURL = window.location.href;
+            
+            convDebugLog('📤 Emitted conversationUpdated event for NEW conversation', {
+              url: window.location.href
+            });
+          } else {
+            convDebugLog('ℹ️ Skipped duplicate event emission for NEW conversation');
+          }
+        }
       }
 
       return this.state.type;
@@ -419,8 +500,15 @@ function processExchanges(conversationParts) {
 
   // Emit event for ConversationStorage
   try {
+    // Get conversation type from the ConversationDetector
+    const conversationType = window.ConversationDetector?.state?.type || 'UNKNOWN';
+    
     const event = new CustomEvent('conversationUpdated', {
-      detail: formattedParts
+      detail: {
+        parts: formattedParts,
+        type: conversationType,
+        timestamp: new Date().toISOString()
+      }
     });
     document.dispatchEvent(event);
     convDebugLog('📤 Emitted conversationUpdated event');
