@@ -1,5 +1,5 @@
 // Debug mode flag
-window.RECIPIENT_STORAGE_DEBUG = true;
+window.RECIPIENT_STORAGE_DEBUG = false;
 
 // Debug logging utility with timestamps
 function debugLog(...args) {

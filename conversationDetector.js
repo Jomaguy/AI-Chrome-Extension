@@ -4,6 +4,18 @@ const CONV_DEBUG = true;
 // Debug prefix specific to conversation detection
 const CONV_DEBUG_PREFIX = '[ConversationDetector]';
 
+// Filter console.log to only show conversation-related logs
+console.log = (function(originalLog) {
+  return function(...args) {
+    if (typeof args[0] === 'string' && 
+        (args[0].startsWith('[ConversationDetector]') || 
+         args[0].startsWith('[ConversationStorage]')) &&
+        !args[0].startsWith('[Recipient')) {
+      originalLog.apply(console, args);
+    }
+  };
+})(console.log.bind(console));
+
 // Selectors for conversation detection
 const SELECTORS = {
   ONGOING_CONVERSATION: '.msg-s-message-list-container',
@@ -32,15 +44,6 @@ function convDebugLog(...args) {
   // Only log messages with [ConversationDetector] prefix
   const timestamp = new Date().toISOString().split('T')[1].split('Z')[0];
   const logMessage = `${CONV_DEBUG_PREFIX} ${timestamp} ${message}`;
-  
-  // Filter out any console.log that doesn't start with [ConversationDetector]
-  console.log = (function(log) {
-    return function(...args) {
-      if (typeof args[0] === 'string' && args[0].startsWith('[ConversationDetector]')) {
-        log.apply(console, args);
-      }
-    };
-  })(console.log.bind(console));
   
   console.log(logMessage, ...rest);
 }
@@ -397,34 +400,54 @@ function getMessageGroup(startingMessage) {
 function processExchanges(conversationParts) {
   const messages = [];
 
-  // Log conversation parts clearly
-  convDebugLog('📝 Conversation Flow:', conversationParts.map((part, i) => {
+  // Format conversation parts for logging and storage
+  const formattedParts = conversationParts.map((part, i) => {
     const partMessages = part.messages.map(msg => {
       const content = msg.querySelector(SELECTORS.MESSAGE_CONTENT)?.textContent.trim();
       return content;
     }).filter(Boolean);
 
     return {
-      [`Part ${i + 1} - ${part.sender}`]: partMessages
+      [`Part ${i + 1} - ${part.sender}`]: partMessages,
+      sender: part.sender,
+      isFromUs: part.isFromUs
     };
-  }));
+  });
+
+  // Log conversation parts clearly
+  convDebugLog('📝 Conversation Flow:', formattedParts);
+
+  // Emit event for ConversationStorage
+  try {
+    const event = new CustomEvent('conversationUpdated', {
+      detail: formattedParts
+    });
+    document.dispatchEvent(event);
+    convDebugLog('📤 Emitted conversationUpdated event');
+  } catch (error) {
+    convDebugLog('❌ Error emitting conversationUpdated event:', error);
+  }
 
   // Convert to flat message array for compatibility
-  conversationParts.forEach((part, partIndex) => {
-    part.messages.forEach((msg, msgIndex) => {
-      const content = msg.querySelector(SELECTORS.MESSAGE_CONTENT)?.textContent.trim();
-      if (content) {
-        messages.push({
-          content,
-          isFromRecipient: !part.isFromUs,
-          sender: part.sender,
-          isConsecutive: msgIndex > 0,
-          order: messages.length + 1,
-          partIndex: partIndex + 1,
-          timestamp: new Date().toISOString()
-        });
-      }
-    });
+  formattedParts.forEach((part, partIndex) => {
+    const partKey = Object.keys(part).find(key => key.startsWith('Part'));
+    const partMessages = part[partKey];
+    
+    if (Array.isArray(partMessages)) {
+      partMessages.forEach((content, msgIndex) => {
+        if (content) {
+          messages.push({
+            content,
+            isFromRecipient: !part.isFromUs,
+            sender: part.sender,
+            isConsecutive: msgIndex > 0,
+            order: messages.length + 1,
+            partIndex: partIndex + 1,
+            timestamp: new Date().toISOString()
+          });
+        }
+      });
+    }
   });
 
   return messages;

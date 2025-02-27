@@ -31,6 +31,7 @@
         "recipientDetector.js",
         "recipientStorage.js",
         "conversationDetector.js",
+        "conversationStorage.js",
         "content.js"
       ]
     }
